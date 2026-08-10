@@ -1,0 +1,2207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Estoque Central</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1B1F27">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Estoque">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F3EFE6; --panel:#FFFFFF; --ink:#20242B; --ink-soft:#5B5F6B;
+    --sidebar:#1B1F27; --sidebar-soft:#9AA0AE; --sidebar-ink:#ECE8DC;
+    --accent:#E2A33D; --accent-ink:#3A2A0C;
+    --good:#3F6B4F; --good-bg:#E6EFE7; --warn:#C97A2B; --warn-bg:#FBEADA; --bad:#B5482A; --bad-bg:#F7E3DB;
+    --line:#DED6C2; --line-soft:#EAE4D4; --radius:10px;
+  }
+  body.ws-etiquetag{ --accent:#2C8C7A; --accent-ink:#0D2A24; }
+  body.ws-vimats{ --accent:#E2A33D; --accent-ink:#3A2A0C; }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:var(--bg);color:var(--ink);font-family:'Inter',system-ui,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased;}
+  h1,h2,h3,.display{font-family:'Space Grotesk',system-ui,sans-serif;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  button{font-family:inherit;cursor:pointer;}
+  input,select,textarea{font-family:inherit;font-size:14px;}
+  a{color:inherit;}
+  ::selection{background:var(--accent);color:var(--accent-ink);}
+  *:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  @media (prefers-reduced-motion: reduce){ *{animation:none !important;transition:none !important;} }
+
+  .ws-bar{display:flex;background:#14171D;}
+  .ws-tab{flex:1;padding:14px 20px;text-align:center;background:transparent;border:none;color:#7C8293;font-family:'Space Grotesk';font-weight:700;font-size:14.5px;letter-spacing:.03em;border-bottom:3px solid transparent;transition:all .15s;}
+  .ws-tab .ws-tab-sub{display:block;font-family:'Inter';font-weight:500;font-size:11px;letter-spacing:0;margin-top:2px;color:#565C6B;}
+  .ws-tab.active{color:#fff;border-bottom-color:var(--accent);background:#1B1F27;}
+  .ws-tab.active .ws-tab-sub{color:var(--accent);}
+  .ws-tab:hover:not(.active){color:#C9CCD6;}
+
+  #app{display:flex;min-height:calc(100vh - 54px);}
+
+  .sidebar{width:220px;flex-shrink:0;background:var(--sidebar);color:var(--sidebar-ink);display:flex;flex-direction:column;padding:22px 14px;}
+  .brand{display:flex;align-items:center;gap:10px;padding:0 8px 22px 8px;border-bottom:1px solid #2B303B;margin-bottom:16px;}
+  .brand-mark{width:30px;height:30px;border-radius:7px;background:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .brand-mark svg{width:17px;height:17px;stroke:var(--accent-ink);}
+  .brand-name{font-family:'Space Grotesk';font-weight:700;font-size:15.5px;line-height:1.1;}
+  .brand-sub{font-size:10.5px;color:var(--sidebar-soft);letter-spacing:.04em;text-transform:uppercase;margin-top:2px;}
+  .nav{display:flex;flex-direction:column;gap:3px;flex:1;}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:var(--sidebar-soft);background:transparent;border:none;text-align:left;font-size:13.5px;font-weight:500;transition:background .12s,color .12s;}
+  .nav-item svg{width:16px;height:16px;flex-shrink:0;stroke:currentColor;}
+  .nav-item:hover{background:#252A34;color:var(--sidebar-ink);}
+  .nav-item.active{background:var(--accent);color:var(--accent-ink);font-weight:600;}
+  .nav-tag{margin-left:auto;font-size:10px;background:#2B303B;color:var(--sidebar-soft);padding:1px 6px;border-radius:20px;font-family:'IBM Plex Mono';}
+  .nav-item.active .nav-tag{background:rgba(0,0,0,.18);color:var(--accent-ink);}
+  .sidebar-footer{border-top:1px solid #2B303B;padding-top:12px;margin-top:12px;}
+
+  .main{flex:1;display:flex;flex-direction:column;min-width:0;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 30px;border-bottom:1px solid var(--line);background:var(--panel);}
+  .topbar h1{font-size:20px;margin:0 0 2px 0;}
+  .topbar .sub{color:var(--ink-soft);font-size:12.5px;}
+  .content{padding:26px 30px 60px 30px;overflow-y:auto;}
+
+  .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid transparent;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;transition:filter .12s, background .12s;}
+  .btn svg{width:14px;height:14px;stroke:currentColor;}
+  .btn-primary{background:var(--ink);color:#fff;}
+  .btn-primary:hover{filter:brightness(1.2);}
+  .btn-accent{background:var(--accent);color:var(--accent-ink);}
+  .btn-accent:hover{filter:brightness(1.06);}
+  .btn-ghost{background:transparent;color:var(--ink);border-color:var(--line);}
+  .btn-ghost:hover{background:var(--line-soft);}
+  .btn-danger{background:transparent;color:var(--bad);border-color:#E4C3B4;}
+  .btn-danger:hover{background:var(--bad-bg);}
+  .btn-sm{padding:6px 10px;font-size:12.5px;border-radius:7px;}
+  .icon-btn{background:transparent;border:1px solid var(--line);border-radius:7px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink-soft);}
+  .icon-btn:hover{background:var(--line-soft);color:var(--ink);}
+  .icon-btn svg{width:14px;height:14px;stroke:currentColor;}
+
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:22px;}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;position:relative;overflow:hidden;}
+  .kpi .label{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);font-weight:600;}
+  .kpi .value{font-family:'Space Grotesk';font-size:24px;font-weight:700;margin-top:6px;}
+  .kpi .note{font-size:11.5px;color:var(--ink-soft);margin-top:4px;}
+  .kpi.alert .value{color:var(--bad);}
+  .kpi.good .value{color:var(--good);}
+  .kpi-bar{position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent);}
+  .kpi-icon{position:absolute;right:14px;top:14px;width:34px;height:34px;border-radius:9px;background:color-mix(in srgb, var(--accent) 16%, white);display:flex;align-items:center;justify-content:center;}
+  .kpi-icon svg{width:17px;height:17px;stroke:var(--accent-ink);}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:22px;}
+  .panel-head{display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid var(--line);}
+  .panel-head h3{margin:0;font-size:15px;}
+  .panel-head p{margin:2px 0 0 0;font-size:12px;color:var(--ink-soft);}
+  .list-row{display:flex;justify-content:space-between;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line-soft);font-size:13.5px;}
+  .list-row:last-child{border-bottom:none;}
+  .list-row .l-name{font-weight:600;}
+  .list-row .l-sub{font-size:11.5px;color:var(--ink-soft);font-weight:400;margin-top:1px;}
+  .list-row .l-val{text-align:right;font-family:'IBM Plex Mono';}
+  .list-row .l-val .l-parens{color:var(--ink-soft);font-size:11.5px;margin-left:4px;}
+
+  .finance-panel{background:var(--sidebar);color:var(--sidebar-ink);border-radius:var(--radius);padding:20px 22px;margin-bottom:22px;}
+  .finance-panel h3{margin:0 0 16px 0;font-size:16px;color:#fff;}
+  .finance-row{display:flex;align-items:center;gap:14px;padding:12px 0;border-top:1px solid #2B303B;}
+  .finance-row:first-of-type{border-top:none;}
+  .finance-icon{width:38px;height:38px;border-radius:9px;background:#252A34;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .finance-icon svg{width:18px;height:18px;stroke:var(--sidebar-soft);}
+  .finance-label{font-size:12px;color:var(--sidebar-soft);}
+  .finance-value{font-family:'Space Grotesk';font-size:21px;font-weight:700;color:#fff;margin-top:2px;}
+  .finance-value.good{color:#7FE0A8;}
+  .finance-note{font-size:11px;color:var(--sidebar-soft);margin-top:2px;}
+
+  .alert-panel{background:var(--warn-bg);border:1px solid #EBCBA0;border-radius:var(--radius);padding:16px 18px;margin-bottom:22px;}
+  .alert-panel h3{display:flex;align-items:center;gap:8px;margin:0 0 10px 0;font-size:15px;color:var(--warn);}
+  .alert-panel h3 svg{width:18px;height:18px;stroke:var(--warn);}
+  .alert-row{display:flex;justify-content:space-between;font-size:13px;color:#7A4A1E;padding:6px 0;border-top:1px solid #EBCBA0;}
+  .alert-row:first-of-type{border-top:none;}
+
+  table{width:100%;border-collapse:collapse;}
+  th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);padding:10px 16px;border-bottom:1px solid var(--line);background:#FAF8F2;font-weight:600;}
+  td{padding:12px 16px;border-bottom:1px solid var(--line-soft);font-size:13.5px;vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:#FBF9F4;}
+  .code-tag{font-family:'IBM Plex Mono';font-size:11.5px;font-weight:600;background:var(--sidebar);color:var(--accent);padding:3px 7px;border-radius:5px;letter-spacing:.02em;}
+  .row-actions{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;}
+  .subtle{font-size:11px;color:var(--ink-soft);margin-top:2px;}
+
+  .gauge-wrap{display:flex;align-items:center;gap:8px;min-width:120px;}
+  .gauge{width:64px;height:6px;background:var(--line-soft);border-radius:4px;overflow:hidden;flex-shrink:0;}
+  .gauge > div{height:100%;border-radius:4px;}
+  .qty-num{font-family:'IBM Plex Mono';font-weight:600;font-size:13px;}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;}
+  .badge-good{background:var(--good-bg);color:var(--good);}
+  .badge-warn{background:var(--warn-bg);color:var(--warn);}
+  .badge-bad{background:var(--bad-bg);color:var(--bad);}
+  .badge-neutral{background:var(--line-soft);color:var(--ink-soft);}
+  .tipo-tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:5px;background:var(--line-soft);color:var(--ink);}
+  .num-tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px;background:var(--sidebar);color:var(--accent);font-family:'IBM Plex Mono';}
+  .cat-tag{display:inline-block;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:5px;background:#EAE1F5;color:#5B3B8C;}
+
+  .stock-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:24px;}
+  .stock-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;}
+  .stock-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .stock-card-title{font-family:'Space Grotesk';font-weight:700;font-size:15.5px;}
+  .stock-card-sub{font-size:12px;color:var(--ink-soft);margin-top:1px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+  .stat-grid{display:grid;gap:8px;margin-bottom:10px;}
+  .stat-grid.cols2{grid-template-columns:1fr 1fr;}
+  .stat-grid.cols3{grid-template-columns:1fr 1fr 1fr;}
+  .stat-box{background:#FAF8F2;border-radius:8px;padding:10px 8px;text-align:center;}
+  .stat-box.accent{background:color-mix(in srgb, var(--accent) 14%, white);}
+  .stat-label{font-size:10.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;}
+  .stat-value{font-family:'Space Grotesk';font-weight:700;font-size:19px;margin-top:2px;color:var(--ink);}
+  .stat-box.accent .stat-value{color:var(--accent-ink);}
+  .stat-unit{font-size:10.5px;color:var(--ink-soft);}
+  .stock-card-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-soft);padding-top:8px;border-top:1px solid var(--line-soft);}
+  .stock-card-row .good{color:var(--good);font-weight:700;}
+  .stock-card-cap{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);}
+  .cap-title{font-size:11.5px;color:var(--ink-soft);margin-bottom:6px;}
+  .cap-row{display:flex;justify-content:space-between;font-size:13px;padding:2px 0;}
+  .valor-box{background:var(--good-bg);color:var(--good);border-radius:8px;padding:9px 12px;display:flex;justify-content:space-between;font-weight:700;font-size:13.5px;margin-top:10px;}
+  .stock-group-title{font-family:'Space Grotesk';font-size:16px;font-weight:700;margin:22px 0 12px 0;display:flex;align-items:center;gap:8px;}
+
+  .empty{padding:56px 20px;text-align:center;color:var(--ink-soft);}
+  .empty .glyph{font-size:30px;margin-bottom:10px;opacity:.5;}
+  .empty h4{margin:0 0 4px 0;color:var(--ink);font-family:'Space Grotesk';font-size:16px;}
+  .empty p{margin:0 0 16px 0;font-size:13px;}
+
+  .modal-overlay{position:fixed;inset:0;background:rgba(27,31,39,.5);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;z-index:50;}
+  .modal-overlay.hidden{display:none;}
+  .modal{background:var(--panel);border-radius:12px;width:100%;max-width:580px;box-shadow:0 20px 50px rgba(0,0,0,.25);}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line);}
+  .modal-head h3{margin:0;font-size:16px;}
+  .modal-body{padding:20px 22px;max-height:70vh;overflow-y:auto;}
+  .modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:16px 22px;border-top:1px solid var(--line);}
+
+  .field{margin-bottom:14px;}
+  .field label{display:block;font-size:12px;font-weight:600;color:var(--ink-soft);margin-bottom:5px;}
+  .field input,.field select,.field textarea{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:7px;background:#FDFCFA;color:var(--ink);}
+  .field input:focus,.field select:focus,.field textarea:focus{border-color:var(--accent);}
+  .field input[readonly]{background:#F1EEE6;color:var(--ink-soft);}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .field-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+  .hint{font-size:11.5px;color:var(--ink-soft);margin-top:4px;}
+  .radio-row{display:flex;gap:14px;flex-wrap:wrap;}
+  .radio-row label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--ink);}
+  .preview-box{background:#FAF8F2;border:1px dashed var(--line);border-radius:8px;padding:10px 12px;margin:10px 0;font-size:12.5px;line-height:1.7;}
+  .preview-box strong{font-family:'IBM Plex Mono';}
+  .inline-btn{background:none;border:none;color:var(--accent);font-weight:600;font-size:12px;text-decoration:underline;cursor:pointer;padding:0;margin-top:4px;}
+
+  .item-row{display:grid;grid-template-columns:1fr 80px 100px 100px 30px;gap:8px;align-items:center;margin-bottom:8px;}
+  .item-row select,.item-row input{padding:7px 9px;border:1px solid var(--line);border-radius:6px;}
+  .item-total{font-family:'IBM Plex Mono';font-weight:600;font-size:13px;text-align:right;}
+  .items-head{display:grid;grid-template-columns:1fr 80px 100px 100px 30px;gap:8px;font-size:10.5px;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px;letter-spacing:.04em;}
+  .item-row-etq{display:grid;grid-template-columns:1fr 110px 70px 90px 90px 30px;gap:8px;align-items:center;margin-bottom:8px;}
+  .item-row-etq select,.item-row-etq input{padding:7px 9px;border:1px solid var(--line);border-radius:6px;}
+  .items-head-etq{display:grid;grid-template-columns:1fr 110px 70px 90px 90px 30px;gap:8px;font-size:10.5px;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px;letter-spacing:.04em;}
+  .total-line{display:flex;justify-content:space-between;padding-top:12px;margin-top:8px;border-top:1px dashed var(--line);font-family:'Space Grotesk';font-weight:700;font-size:16px;}
+
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 18px;border-radius:8px;font-size:13px;font-weight:500;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:100;max-width:82vw;}
+  .toast.hidden{display:none;}
+  .toast.bad{background:var(--bad);}
+  .toast.good{background:var(--good);}
+
+  #printArea{position:absolute;left:-9999px;top:0;width:760px;}
+  .doc{padding:10px;font-family:'IBM Plex Mono',monospace;color:#111;}
+  .doc-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:16px;}
+  .doc-head .company{font-family:'Space Grotesk';font-size:19px;font-weight:700;}
+  .doc-head .company-meta{font-size:11px;color:#444;margin-top:2px;}
+  .doc-title{text-align:right;}
+  .doc-title .type{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#444;}
+  .doc-title .num{font-size:20px;font-weight:700;font-family:'Space Grotesk';}
+  .doc-meta{display:flex;justify-content:space-between;font-size:12px;margin-bottom:16px;color:#222;}
+  .doc table{width:100%;border-collapse:collapse;margin-bottom:14px;}
+  .doc th{border-bottom:1px solid #111;text-align:left;padding:6px 4px;font-size:10.5px;text-transform:uppercase;}
+  .doc td{border-bottom:1px dashed #ccc;padding:7px 4px;font-size:12px;}
+  .doc .doc-total{display:flex;justify-content:flex-end;gap:30px;font-size:13px;padding-top:6px;}
+  .doc .doc-total .grand{font-size:17px;font-weight:700;font-family:'Space Grotesk';}
+  .doc-foot{margin-top:34px;display:flex;justify-content:space-between;font-size:11px;color:#555;}
+  .sign-line{margin-top:46px;border-top:1px solid #111;width:230px;padding-top:5px;font-size:10.5px;text-align:center;}
+  .doc-lines{display:none;}
+  .doc.thermal table{display:none;}
+  .doc.thermal .doc-lines{display:block;border-top:1px dashed #999;padding-top:6px;margin-bottom:10px;}
+  .doc.thermal .doc-lines .line{display:flex;justify-content:space-between;font-size:11px;padding:2px 0;}
+  .doc.thermal{font-size:11px;}
+  .doc.thermal .doc-head{flex-direction:column;align-items:center;text-align:center;gap:2px;border-bottom:1px dashed #111;}
+  .doc.thermal .doc-title{text-align:center;margin-top:4px;}
+  .doc.thermal .doc-meta{flex-direction:column;gap:2px;font-size:11px;}
+  .doc.thermal .doc-total{flex-direction:column;gap:2px;align-items:flex-end;}
+  .doc.thermal .sign-line{width:85%;margin:26px auto 0;}
+  #printArea.thermal80{width:80mm;}
+  #printArea.thermal58{width:58mm;}
+  @media print{
+    body *{visibility:hidden;}
+    #printArea,#printArea *{visibility:visible;}
+    #printArea{position:absolute;left:0;top:0;width:auto;}
+  }
+
+  @media (max-width:820px){
+    #app{flex-direction:column;}
+    .sidebar{width:100%;flex-direction:row;align-items:center;padding:12px;overflow-x:auto;}
+    .brand{border-bottom:none;padding:0 10px 0 0;margin:0;border-right:1px solid #2B303B;margin-right:10px;}
+    .nav{flex-direction:row;flex:none;}
+    .nav-item{white-space:nowrap;}
+    .sidebar-footer{display:none;}
+    .content{padding:18px;}
+    .field-row,.field-row3{grid-template-columns:1fr;}
+    .item-row,.items-head{grid-template-columns:1fr 60px 1fr;}
+    .item-row-etq,.items-head-etq{grid-template-columns:1fr 1fr;}
+    .ws-tab{font-size:12.5px;padding:12px 8px;}
+  }
+</style>
+</head>
+<body class="ws-etiquetag">
+
+<div class="ws-bar" id="wsBar"></div>
+
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark" id="brandMark"></div>
+      <div><div class="brand-name" id="brandName">Estoque Central</div><div class="brand-sub" id="brandSub">ETIQUETAG</div></div>
+    </div>
+    <nav class="nav" id="navList"></nav>
+    <div class="sidebar-footer">
+      <button class="nav-item" onclick="openConfigModal()">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Dados da empresa
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div><h1 id="pageTitle">Painel</h1><div class="sub" id="pageSub">Visão geral do estoque</div></div>
+      <div id="topbarActions"></div>
+    </header>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+
+<div class="modal-overlay hidden" id="modalOverlay"><div class="modal" id="modalBox"></div></div>
+<div id="printArea"></div>
+<div class="toast hidden" id="toast"></div>
+
+<script>
+/* ============================ WORKSPACES ============================ */
+const WS_META = {
+  etiquetag: { key:'etiquetag', label:'ETIQUETAG', sub:'Etiquetas & Ribbons', storageKey:'estoque-etiquetag-v5', tamanhoNav:'Cadastros' },
+  vimats: { key:'vimats', label:'VIMATS', sub:'Confecção & Vestuário', storageKey:'estoque-vimats-v5', tamanhoNav:'Cadastros' }
+};
+let ws = 'etiquetag';
+let estoqueFiltro = 'todos';
+function emptyData(){
+  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[],
+    configImpressao:{formato:'a4', assinatura:true, documento:true}, seq:{pd:1,vd:1,rb:1,tm:1,tg:1,it:1} };
+}
+let DATA = { etiquetag: emptyData(), vimats: emptyData() };
+function cur(){ return DATA[ws]; }
+
+let section = 'dashboard';
+let formItens = [];
+let formContext = 'venda';
+let editingId = null;
+
+/* ============================ MIGRAÇÃO / STORAGE ============================ */
+function migrateIfNeeded(wsKey, raw){
+  if(!raw.configImpressao) raw.configImpressao = {formato:'a4', assinatura:true, documento:true};
+  if(!raw.numeracoes) raw.numeracoes = [];
+  if(!raw.empresas) raw.empresas = [];
+  if(!raw.producoes) raw.producoes = [];
+  if(!raw.ribbonDescricoes) raw.ribbonDescricoes = [];
+  if(!raw.estoque) raw.estoque = [];
+  raw.empresas.forEach(e=>{ if(!e.referencias) e.referencias = []; e.referencias.forEach(r=>{ if(!r.id) r.id = uid(); }); });
+  if(!raw.vendas) raw.vendas = [];
+  raw.vendas.forEach(v=>{
+    if(!v.statusPagamento) v.statusPagamento = 'Pago';
+    if(v.empresaId===undefined){
+      const found = raw.empresas.find(e=>e.nome.toLowerCase()===(v.cliente||'').toLowerCase());
+      v.empresaId = found ? found.id : '';
+    }
+  });
+  if(raw.estoque.length===0){
+    if(Array.isArray(raw.materiais)){
+      raw.materiais.forEach(m=>{
+        raw.estoque.push({ id:m.id, codigo:m.codigo, nome:m.nome, tipo: wsKey==='etiquetag'?'Ribbon':'', tipoRibbon:m.tipo||'',
+          tamanhoId:'', ribbonId:'', numeracaoId:'', categoria:m.categoria||'', empresaId:'', fornecedor:m.fornecedor||'', quantidade:m.quantidade||0,
+          unidade:m.unidade||'', estoqueMinimo:m.estoqueMinimo||0, custo:0, margem:0, preco:m.precoUnitario||0, vendavel: wsKey!=='etiquetag' });
+      });
+    }
+    if(Array.isArray(raw.produtos)){
+      raw.produtos.forEach(p=>{
+        raw.estoque.push({ id:p.id, codigo:p.codigo, nome:p.nome, tipo: wsKey==='etiquetag'?'Tag':'', tipoRibbon:'',
+          tamanhoId:p.tamanhoId||'', ribbonId:'', numeracaoId:'', categoria:p.categoria||'', empresaId:'', empresaNomeLegado:p.empresa||'', fornecedor:'', quantidade:p.quantidade||0,
+          unidade:p.unidade||'', estoqueMinimo:p.estoqueMinimo||0, custo:p.custo||0, margem:0, preco:p.precoVenda||0, vendavel:true });
+      });
+    }
+  }
+  delete raw.materiais; delete raw.produtos;
+  const empresaNomes = new Set();
+  raw.estoque.forEach(it=>{ const nomeAntigo = it.empresa || it.empresaNomeLegado; if(nomeAntigo) empresaNomes.add(nomeAntigo); });
+  empresaNomes.forEach(nome=>{ if(!raw.empresas.some(e=>e.nome===nome)) raw.empresas.push({id:uid(), nome}); });
+  raw.estoque.forEach(it=>{
+    const nomeAntigo = it.empresa || it.empresaNomeLegado;
+    if(nomeAntigo && !it.empresaId){ const found = raw.empresas.find(e=>e.nome===nomeAntigo); if(found) it.empresaId = found.id; }
+    delete it.empresa; delete it.empresaNomeLegado;
+    if(it.numeracaoId===undefined) it.numeracaoId = '';
+    if(it.margem===undefined) it.margem = 0;
+    if(it.empresaId===undefined) it.empresaId = '';
+    if(it.categoriaTag===undefined) it.categoriaTag = 'Tag';
+    if(it.metrosPorRolo===undefined) it.metrosPorRolo = it.tipo==='Ribbon' ? 300 : 0;
+  });
+  if(wsKey==='etiquetag' && !raw._migradoParaUnidades){
+    raw.estoque.forEach(it=>{
+      if(it.tipo==='Tag'){
+        const tam = raw.tamanhos.find(t=>t.id===it.tamanhoId);
+        const upr = tam ? (tam.unidadesPorRolo||0) : 0;
+        if(upr>0){ it.quantidade = it.quantidade*upr; }
+        it.unidade = 'un';
+      }
+    });
+    raw._migradoParaUnidades = true;
+  }
+  if(Array.isArray(raw.tamanhos)){
+    raw.tamanhos.forEach(t=>{
+      if(t.consumoMetros>0 && !t.etiquetasPorMetroManual && !t.passoMm){ t.etiquetasPorMetroManual = 1/t.consumoMetros; }
+      if(t.passoMm===undefined) t.passoMm = 0;
+      if(t.etiquetasPorMetroManual===undefined) t.etiquetasPorMetroManual = 0;
+    });
+  }
+  if(!raw.seq.tm) raw.seq.tm = 1;
+  return raw;
+}
+async function loadAll(){
+  for(const k of Object.keys(WS_META)){
+    let got = false;
+    try{
+      const r = await window.storage.get(WS_META[k].storageKey, false);
+      if(r && r.value){ DATA[k] = migrateIfNeeded(k, Object.assign(emptyData(), JSON.parse(r.value))); got = true; }
+    }catch(e){ /* nada nesta chave */ }
+    if(!got){
+      const legacyKeys = k==='etiquetag'
+        ? ['estoque-etiquetag-v4','estoque-etiquetag-v3','estoque-etiquetag-v2','estoque-etiquetag-v1']
+        : ['estoque-vimats-v4','estoque-vimats-v3','estoque-vimats-v2','estoque-vimats-v1'];
+      for(const legacyKey of legacyKeys){
+        try{
+          const r2 = await window.storage.get(legacyKey, false);
+          if(r2 && r2.value){ DATA[k] = migrateIfNeeded(k, Object.assign(emptyData(), JSON.parse(r2.value))); break; }
+        }catch(e2){ /* nada nesta chave legada */ }
+      }
+    }
+  }
+  if(!DATA.etiquetag.tamanhos.length){
+    DATA.etiquetag.tamanhos = [
+      {id:uid(), nome:'TAG 35x60', unidadesPorRolo:1000, passoMm:65, etiquetasPorMetroManual:0},
+      {id:uid(), nome:'TAG 50x75', unidadesPorRolo:1000, passoMm:80, etiquetasPorMetroManual:0},
+      {id:uid(), nome:'Etiqueta de Composição 33x51', unidadesPorRolo:1500, passoMm:56, etiquetasPorMetroManual:0},
+      {id:uid(), nome:'Etiqueta de Composição 33x76', unidadesPorRolo:1200, passoMm:81, etiquetasPorMetroManual:0},
+      {id:uid(), nome:'Etiqueta de Composição 25x44', unidadesPorRolo:2000, passoMm:49, etiquetasPorMetroManual:0},
+    ];
+  }
+  if(!DATA.etiquetag.numeracoes.length){
+    DATA.etiquetag.numeracoes = ['P','M','G','GG','XG','36','38','40','42','44','46','48','50','52','54','56','58'].map(n=>({id:uid(), nome:n}));
+  }
+  if(!DATA.etiquetag.ribbonDescricoes.length){
+    DATA.etiquetag.ribbonDescricoes = ['Ribbon Preto 110mm','Ribbon Metalizado 110mm'].map(n=>({id:uid(), nome:n}));
+  }
+  if(!DATA.vimats.tamanhos.length){
+    DATA.vimats.tamanhos = ['P','M','G','GG','XG'].map(n=>({id:uid(), nome:n}));
+  }
+}
+async function saveWS(){
+  try{ await window.storage.set(WS_META[ws].storageKey, JSON.stringify(DATA[ws]), false); }
+  catch(e){ showToast('Não foi possível salvar os dados agora.', 'bad'); }
+}
+
+/* ============================ HELPERS ============================ */
+function uid(){ return 'id'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function fmtMoney(n){ n = Number(n)||0; return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); }
+function fmtMoney3(n){ n = Number(n)||0; return 'R$ '+n.toLocaleString('pt-BR',{minimumFractionDigits:3, maximumFractionDigits:3}); }
+function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('pt-BR'); }
+function fmtQty(n){ n = Number(n)||0; return n.toLocaleString('pt-BR',{minimumFractionDigits:0, maximumFractionDigits:3}); }
+function fmtDateTime(iso){ const d=new Date(iso); return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); }
+function todayISO(){ return new Date().toISOString(); }
+function nextCode(prefix, key){ const n = cur().seq[key]||1; cur().seq[key] = n+1; return prefix+'-'+String(n).padStart(4,'0'); }
+function itemCodeInfo(tipo){
+  if(ws==='etiquetag'){ if(tipo==='TagMP') return {prefix:'TM', key:'tm'}; if(tipo==='Tag') return {prefix:'TG', key:'tg'}; return {prefix:'RB', key:'rb'}; }
+  return {prefix:'PR', key:'it'};
+}
+function esc(s){ return (s===undefined||s===null)?'':String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function showToast(msg, type){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast'+(type?(' '+type):'');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(()=>{ t.classList.add('hidden'); }, 3800);
+}
+function stockLevel(qty, min){
+  if(!min || min<=0) return {pct:100, color:'var(--good)', badge:'good', text:'Normal'};
+  const target = min*2;
+  const pct = Math.max(4, Math.min(100, (qty/target)*100));
+  if(qty<=min) return {pct, color:'var(--bad)', badge:'bad', text:'Crítico'};
+  if(qty<=min*1.5) return {pct, color:'var(--warn)', badge:'warn', text:'Baixo'};
+  return {pct, color:'var(--good)', badge:'good', text:'Normal'};
+}
+function gaugeHtml(qty, min, unidade){
+  const lv = stockLevel(qty, min);
+  return `<div class="gauge-wrap"><span class="qty-num">${fmtQty(qty)}<span style="color:var(--ink-soft);font-weight:400;"> ${esc(unidade||'')}</span></span>
+    <div class="gauge"><div style="width:${lv.pct}%;background:${lv.color};"></div></div></div>`;
+}
+function badgeHtml(kind, text){ return `<span class="badge badge-${kind}">${esc(text)}</span>`; }
+function tamanhoObj(id){ return cur().tamanhos.find(x=>x.id===id); }
+function numeracaoObj(id){ return (cur().numeracoes||[]).find(x=>x.id===id); }
+function empresaObj(id){ return (cur().empresas||[]).find(x=>x.id===id); }
+function isTagProntoEtq(item){ return !!item && ws==='etiquetag' && item.tipo==='Tag'; }
+function tagEtiquetasDisponiveis(item){ const tam=tamanhoObj(item.tamanhoId); return tam ? item.quantidade*(tam.unidadesPorRolo||0) : 0; }
+function getEtiquetasPorMetro(tam){
+  if(!tam) return 0;
+  if(tam.etiquetasPorMetroManual>0) return tam.etiquetasPorMetroManual;
+  if(tam.passoMm>0) return 1000/tam.passoMm;
+  return 0;
+}
+function getConsumoMetros(tam){ const epm = getEtiquetasPorMetro(tam); return epm>0 ? 1/epm : 0; }
+function passoDisplay(tam){ if(!tam) return 0; if(tam.passoMm>0) return tam.passoMm; const cm=getConsumoMetros(tam); return cm>0 ? cm*1000 : 0; }
+function itemValorEstoque(it){
+  if(isTagProntoEtq(it)){ return (it.quantidade/1000)*it.preco; }
+  return it.quantidade*it.preco;
+}
+function custoUnitarioItem(it){
+  if(ws==='etiquetag' && it.tipo==='Ribbon') return it.preco;
+  return it.custo||0;
+}
+function valorInvestidoItem(it){ return it.quantidade * custoUnitarioItem(it); }
+function saleUnitLabel(prod){ return prod.unidade; }
+function tagFullLabel(prod){
+  if(!prod) return '';
+  if(ws!=='etiquetag' || (prod.tipo!=='Tag' && prod.tipo!=='TagMP')) return prod.nome;
+  let label = prod.nome;
+  const num = numeracaoObj(prod.numeracaoId);
+  if(num) label += ' - '+num.nome;
+  const emp = empresaObj(prod.empresaId);
+  if(emp) label += ' ('+emp.nome+')';
+  return label;
+}
+function tagIdentificacaoCompleta(prod){
+  if(!prod) return '';
+  if(ws!=='etiquetag' || prod.tipo!=='Tag') return prod.nome;
+  const partes = [];
+  const emp = empresaObj(prod.empresaId);
+  if(emp) partes.push(emp.nome);
+  partes.push(prod.categoriaTag==='Composição' ? 'Etiqueta de Composição' : 'TAG');
+  const tam = tamanhoObj(prod.tamanhoId);
+  if(tam) partes.push(tam.nome);
+  const num = numeracaoObj(prod.numeracaoId);
+  if(num) partes.push('Tam. '+num.nome);
+  const rb = prod.ribbonId ? cur().estoque.find(x=>x.id===prod.ribbonId) : null;
+  if(rb) partes.push('Ribbon '+rb.tipoRibbon);
+  return partes.join(' · ');
+}
+
+/* ============================ WORKSPACE SWITCH ============================ */
+function renderWsBar(){
+  document.getElementById('wsBar').innerHTML = Object.values(WS_META).map(m=>`
+    <button class="ws-tab ${ws===m.key?'active':''}" onclick="switchWs('${m.key}')">${m.label}<span class="ws-tab-sub">${m.sub}</span></button>`).join('');
+}
+function switchWs(newWs){
+  if(ws===newWs) return;
+  ws = newWs; document.body.className = 'ws-'+ws; section = 'dashboard'; estoqueFiltro='todos'; financeiroEmpresaSelecionada='';
+  renderAll();
+}
+
+/* ============================ NAV / RENDER ============================ */
+function navItems(){
+  return [
+    {id:'dashboard', label:'Painel', icon:'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z'},
+    {id:'estoque', label:'Estoque', icon:'M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8'},
+    {id:'pedidos', label:'Pedidos', icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-5 8l2 2 4-4'},
+    {id:'vendas', label:'Vendas', icon:'M3 3h2l2.6 12.4a2 2 0 002 1.6h8.8a2 2 0 002-1.9L21 8H6M9 21a1 1 0 100-2 1 1 0 000 2zm8 0a1 1 0 100-2 1 1 0 000 2z'},
+    {id:'financeiro', label:'Financeiro', icon:'M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6'},
+    {id:'tamanhos', label:WS_META[ws].tamanhoNav, icon:'M4 4h16v4H4zM4 10h10v4H4zM4 16h16v4H4z'},
+    {id:'impressao', label:'Impressão', icon:'M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6v-8z'},
+  ];
+}
+function renderNav(){
+  const d = cur();
+  document.getElementById('brandSub').textContent = WS_META[ws].label;
+  document.getElementById('brandMark').innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg>`;
+  const el = document.getElementById('navList');
+  el.innerHTML = navItems().map(n=>{
+    let count = '';
+    if(n.id==='pedidos') count = d.pedidos.filter(p=>p.status==='Pendente').length;
+    if(n.id==='estoque') count = d.estoque.filter(x=>x.estoqueMinimo>0 && x.quantidade<=x.estoqueMinimo).length;
+    const tag = count ? `<span class="nav-tag">${count}</span>` : '';
+    return `<button class="nav-item ${section===n.id?'active':''}" onclick="goTo('${n.id}')">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="${n.icon}"/></svg>${n.label} ${tag}</button>`;
+  }).join('');
+}
+function goTo(s){ section = s; renderAll(); }
+function setFiltro(f){ estoqueFiltro = f; renderAll(); }
+function setTopbar(title, sub, actionsHtml){
+  document.getElementById('pageTitle').textContent = title;
+  document.getElementById('pageSub').textContent = sub;
+  document.getElementById('topbarActions').innerHTML = actionsHtml || '';
+}
+function renderAll(){
+  renderWsBar(); renderNav();
+  const c = document.getElementById('content');
+  const isEtq = ws==='etiquetag';
+  if(section==='dashboard'){ setTopbar('Painel', 'Visão geral do estoque e produção'); c.innerHTML = renderDashboard(); }
+  else if(section==='estoque'){ setTopbar('Estoque', isEtq ? 'Matéria-prima e produtos prontos, separados' : 'Itens disponíveis para venda',
+    isEtq ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">
+       <button class="btn btn-ghost" onclick="printEstoque('materiaprima')">${iconPrint()} Imprimir matéria-prima</button>
+       <button class="btn btn-ghost" onclick="printEstoque('prontos')">${iconPrint()} Imprimir produtos prontos</button>
+       <button class="btn btn-accent" onclick="openEstoqueForm()">${iconPlus()} Novo item</button></div>`
+     : `<div style="display:flex;gap:8px;"><button class="btn btn-ghost" onclick="printEstoque('todos')">${iconPrint()} Imprimir estoque</button>
+     <button class="btn btn-accent" onclick="openEstoqueForm()">${iconPlus()} Novo item</button></div>`);
+    c.innerHTML = renderEstoque(); }
+  else if(section==='pedidos'){ setTopbar('Pedidos','Pedidos de clientes, antes da venda',
+    `<button class="btn btn-accent" onclick="openPedidoForm()">${iconPlus()} Novo pedido</button>`); c.innerHTML = renderPedidos(); }
+  else if(section==='vendas'){ setTopbar('Vendas','Vendas concluídas e comprovantes',
+    `<button class="btn btn-accent" onclick="openVendaForm()">${iconPlus()} Nova venda</button>`); c.innerHTML = renderVendas(); }
+  else if(section==='financeiro'){ setTopbar('Financeiro','Vendas e pendências, organizadas por empresa', ''); c.innerHTML = renderFinanceiro(); }
+  else if(section==='tamanhos'){ setTopbar(WS_META[ws].tamanhoNav, isEtq ? 'Tamanhos, numerações e empresas' : 'Tamanhos e empresas',
+    ''); c.innerHTML = renderTamanhos(); }
+  else if(section==='impressao'){ setTopbar('Configuração de Impressão', 'Formato do papel e informações no comprovante', ''); c.innerHTML = renderImpressaoConfig(); }
+}
+
+function iconPlus(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>`; }
+function iconPrint(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6v-8z"/></svg>`; }
+function iconEdit(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 013 3L12 15l-4 1 1-4z"/></svg>`; }
+function iconTrash(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>`; }
+function iconCheck(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>`; }
+function iconX(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M18 6L6 18M6 6l12 12"/></svg>`; }
+function iconAdjust(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>`; }
+function iconFactory(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 21V10l6 4v-4l6 4V7l6 4v10H3z"/></svg>`; }
+function iconBox(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8"/></svg>`; }
+function iconRuler(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 7l14 14M7 3l14 14M7 7l3 3M11 11l3 3M15 15l3 3"/></svg>`; }
+function iconTag2(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M20.6 12.6L12 21.2 2.8 12 11.4 3.4H20.6z"/><circle cx="16" cy="8" r="1.4"/></svg>`; }
+function iconWallet(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M20 7H4a2 2 0 00-2 2v9a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M17 4H7a2 2 0 00-2 2v1h14V6a2 2 0 00-2-2z"/><circle cx="16" cy="13" r="1.6"/></svg>`; }
+function iconCart(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="18" cy="21" r="1"/><path d="M1 1h4l2.6 13.4a2 2 0 002 1.6h9.8a2 2 0 002-1.9L23 6H6"/></svg>`; }
+function iconDollar(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>`; }
+function iconWarn(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 2L1 21h22L12 2z"/><path d="M12 9v5M12 18h.01"/></svg>`; }
+
+/* ============================ DASHBOARD ============================ */
+function renderDashboard(){
+  const d = cur(); const isEtq = ws==='etiquetag';
+  if(!d.estoque.length && !d.pedidos.length && !d.vendas.length){
+    return `<div class="panel"><div class="empty">
+      <div class="glyph">◧</div><h4>Comece cadastrando o estoque de ${WS_META[ws].label}</h4>
+      <p>${isEtq ? 'Cadastre ribbons e tags matéria-prima para começar.' : 'Cadastre os itens do seu estoque.'}</p>
+      <button class="btn btn-accent" onclick="goTo('estoque');openEstoqueForm();">${iconPlus()} Novo item</button>
+    </div></div>`;
+  }
+  const vendasValidas = d.vendas.filter(v=>v.status!=='Cancelada');
+  const totalVendas = vendasValidas.reduce((s,v)=>s+v.total,0);
+  let custoVendido = 0;
+  vendasValidas.forEach(v=> v.itens.forEach(it=>{
+    const prod = d.estoque.find(p=>p.id===it.produtoId);
+    if(prod) custoVendido += it.quantidade * custoUnitarioItem(prod);
+  }));
+  const lucroObtido = totalVendas - custoVendido;
+  const valorInvestidoTotal = d.estoque.reduce((s,x)=>s+valorInvestidoItem(x),0);
+  const baixo = d.estoque.filter(x=>x.estoqueMinimo>0 && x.quantidade<=x.estoqueMinimo);
+  const pedidosPend = d.pedidos.filter(p=>p.status==='Pendente').length;
+
+  if(isEtq){
+    const ribbons = d.estoque.filter(x=>x.tipo==='Ribbon');
+    const tagMPs = d.estoque.filter(x=>x.tipo==='TagMP');
+    const tagsProntos = d.estoque.filter(x=>x.tipo==='Tag');
+    const totalTagsMP = tagMPs.reduce((s,x)=>s+tagEtiquetasDisponiveis(x),0);
+    const totalRibbonMetros = ribbons.reduce((s,x)=>s+x.quantidade,0);
+    const totalProntos = tagsProntos.reduce((s,x)=>s+x.quantidade,0);
+    const valorMP = ribbons.reduce((s,x)=>s+valorInvestidoItem(x),0) + tagMPs.reduce((s,x)=>s+valorInvestidoItem(x),0);
+    const valorProdutos = tagsProntos.reduce((s,x)=>s+valorInvestidoItem(x),0);
+
+    const materiaPrimaLista = [...ribbons, ...tagMPs].sort((a,b)=>b.quantidade-a.quantidade).slice(0,8);
+    const producoesRecentes = [...d.producoes].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,8);
+
+    return `
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-icon">${iconBox()}</div><div class="label">Tags em Estoque</div><div class="value">${fmtQty(totalTagsMP)}</div><div class="note">unidades (matéria-prima)</div></div>
+      <div class="kpi"><div class="kpi-icon">${iconRuler()}</div><div class="label">Ribbon em Estoque</div><div class="value">${fmtQty(totalRibbonMetros)}m</div><div class="note">metros lineares</div></div>
+      <div class="kpi"><div class="kpi-icon">${iconTag2()}</div><div class="label">Produtos Prontos</div><div class="value">${fmtQty(totalProntos)}</div><div class="note">tags confeccionadas</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>Matéria-Prima</h3></div>
+      ${materiaPrimaLista.length ? materiaPrimaLista.map(it=>{
+        const isRb = it.tipo==='Ribbon';
+        const rolos = isRb ? (it.metrosPorRolo>0?it.quantidade/it.metrosPorRolo:0) : it.quantidade;
+        const unidadeTxt = isRb ? fmtQty(it.quantidade)+' metros' : fmtQty(tagEtiquetasDisponiveis(it))+' unidades';
+        return `<div class="list-row"><div><div class="l-name">${esc(it.nome)}</div></div><div class="l-val">${unidadeTxt}<span class="l-parens">(${fmtQty(rolos)} rolos)</span></div></div>`;
+      }).join('') : `<div class="empty" style="padding:24px;"><p>Nenhuma matéria-prima cadastrada.</p></div>`}
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>Produções Recentes</h3></div>
+      ${producoesRecentes.length ? producoesRecentes.map(p=>{
+        const tam = tamanhoObj(p.tamanhoId); const num = numeracaoObj(p.numeracaoId); const emp = empresaObj(p.empresaId);
+        const desc = (tam?tam.nome:'')+(num?' '+num.nome:'');
+        return `<div class="list-row"><div><div class="l-name">${esc(p.responsavel||'—')} — ${esc(desc)}</div><div class="l-sub">${emp?esc(emp.nome)+' · ':''}${p.referencia?'Ref. '+esc(p.referencia)+' · ':''}${fmtDate(p.data)}</div></div>
+          <div class="l-val" style="display:flex;align-items:center;gap:10px;"><div>${fmtQty(p.quantidade)} un.<div class="l-sub">${p.metrosRibbon?'Ribbon: '+fmtQty(p.metrosRibbon)+'m':''}</div></div>
+          <button class="icon-btn" title="Imprimir comprovante" onclick="printProducao('${p.id}')">${iconPrint()}</button></div></div>`;
+      }).join('') : `<div class="empty" style="padding:24px;"><p>Nenhuma produção registrada ainda.</p></div>`}
+    </div>
+
+    ${financeAndAlertHtml(valorInvestidoTotal, valorMP, valorProdutos, totalVendas, vendasValidas.length, lucroObtido, baixo)}
+    `;
+  }
+
+  return `
+  <div class="kpi-grid">
+    <div class="kpi"><div class="kpi-bar"></div><div class="label">Itens em estoque</div><div class="value">${d.estoque.length}</div><div class="note">${d.pedidos.length} pedidos · ${d.vendas.length} vendas</div></div>
+    <div class="kpi"><div class="kpi-bar"></div><div class="label">Pedidos pendentes</div><div class="value">${pedidosPend}</div><div class="note">Aguardando produção/entrega</div></div>
+  </div>
+  ${financeAndAlertHtml(valorInvestidoTotal, valorInvestidoTotal, 0, totalVendas, vendasValidas.length, lucroObtido, baixo)}
+  `;
+}
+function financeAndAlertHtml(valorInvestidoTotal, valorMP, valorProdutos, totalVendas, nVendas, lucroObtido, baixo){
+  return `
+  <div class="finance-panel">
+    <h3>Resumo Financeiro</h3>
+    <div class="finance-row"><div class="finance-icon">${iconWallet()}</div><div><div class="finance-label">Investimento em Estoque</div><div class="finance-value">${fmtMoney(valorInvestidoTotal)}</div><div class="finance-note">MP: ${fmtMoney(valorMP)} · Produtos: ${fmtMoney(valorProdutos)}</div></div></div>
+    <div class="finance-row"><div class="finance-icon">${iconCart()}</div><div><div class="finance-label">Total de Vendas</div><div class="finance-value">${fmtMoney(totalVendas)}</div><div class="finance-note">${nVendas} venda(s) registrada(s)</div></div></div>
+    <div class="finance-row"><div class="finance-icon">${iconDollar()}</div><div><div class="finance-label">Lucro Obtido</div><div class="finance-value good">${fmtMoney(lucroObtido)}</div><div class="finance-note">Vendas − custo dos produtos</div></div></div>
+  </div>
+  ${baixo.length ? `<div class="alert-panel"><h3>${iconWarn()} Alerta de Estoque Baixo</h3>
+    ${baixo.map(it=>{
+      let txt;
+      if(ws==='etiquetag' && (it.tipo==='Ribbon')){ txt = fmtQty(it.metrosPorRolo>0?it.quantidade/it.metrosPorRolo:0)+' rolos restantes'; }
+      else if(ws==='etiquetag' && it.tipo==='TagMP'){ txt = fmtQty(it.quantidade)+' rolos restantes'; }
+      else { txt = fmtQty(it.quantidade)+' '+esc(it.unidade)+' restantes'; }
+      return `<div class="alert-row"><span>${esc(it.nome)}</span><span>${txt}</span></div>`;
+    }).join('')}
+  </div>` : ''}`;
+}
+function statusBadge(status){
+  const map = {'Pendente':'warn','Em produção':'warn','Concluído':'good','Cancelado':'bad','Concluída':'good','Cancelada':'bad'};
+  return badgeHtml(map[status]||'neutral', status);
+}
+
+/* ============================ ESTOQUE (unificado) ============================ */
+function renderEstoque(){
+  const d = cur(); const isEtq = ws==='etiquetag';
+  if(!d.estoque.length){
+    return `<div class="panel"><div class="empty"><div class="glyph">◧</div><h4>Nenhum item cadastrado</h4>
+      <p>${isEtq ? 'Cadastre ribbons e tags matéria-prima; produtos prontos são gerados ao produzir.' : 'Cadastre os itens do seu estoque.'}</p>
+      <button class="btn btn-accent" onclick="openEstoqueForm()">${iconPlus()} Novo item</button></div></div>`;
+  }
+  let items = [...d.estoque];
+  items.sort((a,b)=>a.nome.localeCompare(b.nome));
+
+  if(isEtq){
+    const filterBar = `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <button class="btn btn-sm ${estoqueFiltro==='todos'?'btn-accent':'btn-ghost'}" onclick="setFiltro('todos')">Todos</button>
+      <button class="btn btn-sm ${estoqueFiltro==='Ribbon'?'btn-accent':'btn-ghost'}" onclick="setFiltro('Ribbon')">Ribbons</button>
+      <button class="btn btn-sm ${estoqueFiltro==='TagMP'?'btn-accent':'btn-ghost'}" onclick="setFiltro('TagMP')">Matéria-Prima (Tags)</button>
+      <button class="btn btn-sm ${estoqueFiltro==='Tag'?'btn-accent':'btn-ghost'}" onclick="setFiltro('Tag')">Produtos Prontos</button>
+    </div>`;
+    const ribbons = items.filter(x=>x.tipo==='Ribbon');
+    const tagMPs = items.filter(x=>x.tipo==='TagMP');
+    const tagsProntos = items.filter(x=>x.tipo==='Tag');
+    let out = filterBar;
+    if(estoqueFiltro==='todos' || estoqueFiltro==='Ribbon'){
+      out += `<div class="stock-group-title">📏 Ribbons (matéria-prima)</div>`;
+      out += ribbons.length ? `<div class="stock-grid">${ribbons.map(ribbonCardHtml).join('')}</div>` : `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhum ribbon cadastrado.</p></div></div>`;
+    }
+    if(estoqueFiltro==='todos' || estoqueFiltro==='TagMP'){
+      out += `<div class="stock-group-title">📦 Matéria-Prima (Tags em branco)</div>`;
+      out += tagMPs.length ? `<div class="stock-grid">${tagMPs.map(tagMpCardHtml).join('')}</div>` : `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhuma matéria-prima de tag cadastrada.</p></div></div>`;
+    }
+    if(estoqueFiltro==='todos' || estoqueFiltro==='Tag'){
+      out += `<div class="stock-group-title">🏷️ Produtos Prontos</div>`;
+      out += tagsProntos.length ? `<div class="stock-grid">${tagsProntos.map(tagProntoCardHtml).join('')}</div>` : `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhum produto pronto ainda. Use "Produzir" numa matéria-prima para gerar.</p></div></div>`;
+    }
+    return out;
+  }
+  return `<div class="panel"><table>
+    <thead><tr><th>Código</th><th>Nome</th><th>Categoria</th><th>Tamanho</th><th>Empresa</th><th>Estoque</th><th>Mín.</th><th>Preço venda</th><th>Valor em estoque</th><th></th></tr></thead>
+    <tbody>${items.map(it=>{ const tam=tamanhoObj(it.tamanhoId); const emp=empresaObj(it.empresaId);
+      return `<tr>
+        <td><span class="code-tag">${esc(it.codigo)}</span></td>
+        <td>${esc(it.nome)}</td>
+        <td>${esc(it.categoria)||'—'}</td>
+        <td>${esc(tam?tam.nome:'—')}</td>
+        <td>${emp?esc(emp.nome):'—'}</td>
+        <td>${gaugeHtml(it.quantidade, it.estoqueMinimo, it.unidade)}</td>
+        <td class="mono">${fmtQty(it.estoqueMinimo)}</td>
+        <td class="mono">${fmtMoney(it.preco)}</td>
+        <td class="mono">${fmtMoney(itemValorEstoque(it))}</td>
+        <td><div class="row-actions">
+          <button class="icon-btn" title="Ajustar estoque" onclick="openAjusteModal('${it.id}')">${iconAdjust()}</button>
+          <button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
+          <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button>
+        </div></td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+function ribbonCardHtml(it){
+  const d = cur();
+  const metrosPorRolo = it.metrosPorRolo || 300;
+  const rolosDisp = metrosPorRolo>0 ? it.quantidade/metrosPorRolo : 0;
+  const tagsRelevantes = d.tamanhos.filter(t=>getConsumoMetros(t)>0);
+  return `<div class="stock-card">
+    <div class="stock-card-head">
+      <div><div class="stock-card-title">${esc(it.nome)}</div><div class="stock-card-sub">${esc(it.tipoRibbon)}</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="openAjusteModal('${it.id}')">${iconAdjust()} Entrada</button>
+    </div>
+    <div class="stat-grid cols2">
+      <div class="stat-box"><div class="stat-label">Em Estoque</div><div class="stat-value">${fmtQty(it.quantidade)}</div><div class="stat-unit">metros</div></div>
+      <div class="stat-box accent"><div class="stat-label">Rolos Disp.</div><div class="stat-value">${fmtQty(rolosDisp)}</div><div class="stat-unit">rolos</div></div>
+    </div>
+    <div class="stock-card-row"><span>Custo: ${fmtMoney(it.preco)}/m</span><span class="good">Estoque: ${fmtMoney(it.quantidade*it.preco)}</span></div>
+    ${tagsRelevantes.length ? `<div class="stock-card-cap"><div class="cap-title">Capacidade de Impressão:</div>
+      ${tagsRelevantes.map(t=>`<div class="cap-row"><span>${esc(t.nome)}</span><span>${fmtQty(Math.floor(it.quantidade/getConsumoMetros(t)))} tags</span></div>`).join('')}
+    </div>` : ''}
+    <div class="row-actions" style="margin-top:10px;">
+      <button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
+      <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button>
+    </div>
+  </div>`;
+}
+function tagMpCardHtml(it){
+  const tam = tamanhoObj(it.tamanhoId);
+  const upr = tam ? (tam.unidadesPorRolo||0) : 0;
+  const totalUn = it.quantidade*upr;
+  const custoUn = upr>0 ? it.custo/upr : 0;
+  return `<div class="stock-card">
+    <div class="stock-card-head">
+      <div><div class="stock-card-title">${esc(it.nome)}</div>
+        <div class="stock-card-sub">${esc(tam?tam.nome:'Sem tamanho')} ${it.categoriaTag==='Composição'?'<span class="cat-tag">Composição</span>':''}</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="openAjusteModal('${it.id}')">${iconAdjust()} Entrada</button>
+    </div>
+    <div class="stat-grid cols3">
+      <div class="stat-box"><div class="stat-label">Em Estoque</div><div class="stat-value">${fmtQty(totalUn)}</div><div class="stat-unit">unidades</div></div>
+      <div class="stat-box"><div class="stat-label">Por Rolo</div><div class="stat-value">${fmtQty(upr)}</div><div class="stat-unit">unidades</div></div>
+      <div class="stat-box accent"><div class="stat-label">Rolos Disp.</div><div class="stat-value">${fmtQty(it.quantidade)}</div><div class="stat-unit">rolos</div></div>
+    </div>
+    <div class="stock-card-row"><span>Custo: ${fmtMoney3(custoUn)}/un</span><span class="good">Estoque: ${fmtMoney(it.quantidade*it.custo)}</span></div>
+    <div class="row-actions" style="margin-top:10px;">
+      <button class="btn btn-accent btn-sm" onclick="openProducaoModal('${it.id}')">${iconFactory()} Produzir</button>
+      <button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
+      <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button>
+    </div>
+  </div>`;
+}
+function tagProntoCardHtml(it){
+  const d = cur();
+  const tam = tamanhoObj(it.tamanhoId);
+  const num = numeracaoObj(it.numeracaoId);
+  const emp = empresaObj(it.empresaId);
+  return `<div class="stock-card">
+    <div class="stock-card-head">
+      <div><div class="stock-card-title">${esc(it.nome)}${num?` <span class="num-tag">${esc(num.nome)}</span>`:''}${it.categoriaTag==='Composição'?' <span class="cat-tag">Composição</span>':''}</div>
+        <div class="stock-card-sub">${esc(tam?tam.nome:'Sem tamanho')}${emp?' · '+esc(emp.nome):''}</div></div>
+      <button class="btn btn-ghost btn-sm" onclick="openAjusteModal('${it.id}')">${iconAdjust()} Entrada</button>
+    </div>
+    <div class="stat-grid cols2">
+      <div class="stat-box accent"><div class="stat-label">Em Estoque</div><div class="stat-value">${fmtQty(it.quantidade)}</div><div class="stat-unit">unidades</div></div>
+      <div class="stat-box"><div class="stat-label">Preço</div><div class="stat-value" style="font-size:15px;">${fmtMoney(it.preco)}</div><div class="stat-unit">por milheiro</div></div>
+    </div>
+    <div class="stock-card-row"><span>Custo: ${fmtMoney3(it.custo)}/un</span><span>Venda potencial: ${fmtMoney(itemValorEstoque(it))}</span></div>
+    <div class="valor-box"><span>Valor investido</span><span>${fmtMoney(it.quantidade*it.custo)}</span></div>
+    <div class="row-actions" style="margin-top:10px;">
+      <button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
+      <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button>
+    </div>
+  </div>`;
+}
+function openEstoqueForm(id){
+  editingId = id || null;
+  const isEtq = ws==='etiquetag';
+  const d = cur();
+  const it = id ? d.estoque.find(x=>x.id===id) : {
+    nome:'', tipo: isEtq?'Ribbon':'', tipoRibbon:'Cera', tamanhoId:'', ribbonId:'', numeracaoId:'', categoria:'', categoriaTag:'Tag', empresaId:'', fornecedor:'', metrosPorRolo:300,
+    quantidade:0, unidade: isEtq?'metro':'un', estoqueMinimo:0, custo:0, margem:0, preco:0
+  };
+  const empresasCatalog = d.empresas||[];
+  const tipoAtual = it.tipo || 'Ribbon';
+
+  const typeSelector = isEtq ? `<div class="field"><label>Tipo de item</label>
+    <div class="radio-row">
+      <label><input type="radio" name="tipoItem" value="Ribbon" ${tipoAtual==='Ribbon'?'checked':''} onchange="toggleTipoItem('Ribbon')"> Ribbon</label>
+      <label><input type="radio" name="tipoItem" value="TagMP" ${tipoAtual==='TagMP'?'checked':''} onchange="toggleTipoItem('TagMP')"> Tag</label>
+      <label><input type="radio" name="tipoItem" value="Tag" ${tipoAtual==='Tag'?'checked':''} onchange="toggleTipoItem('Tag')"> Tag pronto</label>
+    </div></div>` : '';
+
+  const ribbonFields = isEtq ? `<div id="ribbonFields" style="display:${tipoAtual==='Ribbon'?'block':'none'}">
+    <div class="field"><label>Tipo de ribbon</label><select id="f_tiporibbon">
+      <option value="Cera" ${it.tipoRibbon==='Cera'?'selected':''}>Cera</option>
+      <option value="Têxtil" ${it.tipoRibbon==='Têxtil'?'selected':''}>Têxtil</option>
+      <option value="Misto" ${it.tipoRibbon==='Misto'?'selected':''}>Misto</option>
+    </select></div>
+    <div class="field-row">
+      <div class="field"><label>Preço do rolo (R$)</label><input type="number" step="0.01" min="0" id="f_precorolo" value="${it.precoRolo||''}" oninput="updateRibbonCusto()"></div>
+      <div class="field"><label>Metros por rolo</label><input type="number" step="0.001" min="0" id="f_metrosrolo" value="${it.metrosPorRolo||300}" oninput="updateRibbonCusto()"></div>
+    </div>
+    <p class="hint" id="ribbonCustoHint">Custo por metro: ${fmtMoney3(it.preco||0)}</p>
+    </div>` : '';
+
+  const categoriaTagSelect = `<div class="field"><label>Modelo</label><select id="f_categoriatag">
+      <option value="Tag" ${it.categoriaTag!=='Composição'?'selected':''}>Tag (etiqueta de tamanho: P, M, G...)</option>
+      <option value="Composição" ${it.categoriaTag==='Composição'?'selected':''}>Etiqueta de Composição (tecido, cuidados)</option>
+    </select></div>`;
+
+  const tamanhoSelectHtml = `<select id="f_tamanho" onchange="updatePricingPreview()"><option value="">Selecione</option>
+      ${d.tamanhos.map(t=>`<option value="${t.id}" ${it.tamanhoId===t.id?'selected':''}>${esc(t.nome)}</option>`).join('')}
+    </select>`;
+
+  const tagMpFields = isEtq ? `<div id="tagMpFields" style="display:${tipoAtual==='TagMP'?'block':'none'}">
+    <div class="field"><label>Descrição do Produto</label><select id="f_descricaomp" onchange="updateDescricaoMP()">
+      <option value="">Selecione</option>
+      ${d.tamanhos.map(t=>`<option value="${t.id}" ${it.tamanhoId===t.id?'selected':''}>${esc(t.nome)}${t.dimensao?' ('+esc(t.dimensao)+')':''}</option>`).join('')}
+    </select></div>
+    <div class="field"><label>Fornecedor</label><input id="f_fornecedor" value="${esc(it.fornecedor)}"></div>
+    <p class="hint">Estoque de tags em branco, ainda não impressas. Use o botão "Produzir" na tela de Estoque para transformar em produto pronto (consumindo ribbon).</p>
+    </div>` : '';
+
+  const empresaSelectHtml = `<select id="f_empresa" onchange="handleEmpresaSelect(this)">
+      <option value="">Nenhuma</option>
+      ${empresasCatalog.map(e=>`<option value="${e.id}" ${it.empresaId===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}
+      <option value="__new__">+ Nova empresa...</option>
+    </select>`;
+
+  const tagProntoFields = isEtq ? `<div id="tagProntoFields" style="display:${tipoAtual==='Tag'?'block':'none'}">
+    <div class="field"><label>Empresa / Marca</label>${empresaSelectHtml}</div>
+    <div class="field"><label>Descrição do Produto</label><select id="f_descricaoproduto" onchange="updateDescricaoProduto()">
+      <option value="">Selecione</option>
+      ${d.tamanhos.map(t=>`<option value="${t.id}" ${it.tamanhoId===t.id?'selected':''}>${esc(t.nome)}${t.dimensao?' ('+esc(t.dimensao)+')':''}</option>`).join('')}
+    </select></div>
+    <div class="field"><label>Numeração</label><select id="f_numeracao"><option value="">Nenhuma</option>
+      ${(d.numeracoes||[]).map(n=>`<option value="${n.id}" ${it.numeracaoId===n.id?'selected':''}>${esc(n.nome)}</option>`).join('')}
+    </select></div>
+    <p class="hint">Normalmente este produto é gerado automaticamente pela ação "Produzir". Use este formulário para ajustes manuais. A descrição, numeração e preço vêm do cadastro em Modelos.</p>
+    </div>` : '';
+
+  const vimatsFields = !isEtq ? `
+    <div class="field"><label>Categoria</label><input id="f_categoria" value="${esc(it.categoria)}" placeholder="Ex.: Vestuário"></div>
+    <div class="field-row">
+      <div class="field"><label>Tamanho</label>${tamanhoSelectHtml}</div>
+      <div class="field"><label>Empresa / Fornecedor</label>${empresaSelectHtml}</div>
+    </div>` : '';
+
+  const qtyLabelTxt = isEtq ? (tipoAtual==='Ribbon' ? 'Quantidade em estoque (metros)' : tipoAtual==='TagMP' ? 'Quantidade em estoque (unidades)' : 'Quantidade produzida (unidades)') : 'Quantidade em estoque';
+  const custoLabelTxt = isEtq ? 'Custo por rolo (R$)' : 'Custo';
+  const precoLabelTxt = isEtq ? (tipoAtual==='Tag' ? 'Preço de venda (por milheiro - 1000 un)' : 'Não aplicável') : 'Preço de venda';
+  const showPreco = !isEtq || tipoAtual==='Tag';
+  const showCusto = !isEtq || tipoAtual==='TagMP';
+  const unidadeDefault = isEtq ? (tipoAtual==='Ribbon'?'metro':tipoAtual==='TagMP'?'rolo':'un') : it.unidade;
+
+
+  openModal(`
+    <div class="modal-head"><h3>${id?'Editar item':'Novo item'} · Estoque ${WS_META[ws].label}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="saveEstoque(event)">
+      <div class="modal-body">
+        ${typeSelector}
+        <div class="field" id="nomeFieldWrap" style="display:${(tipoAtual==='Tag'||tipoAtual==='TagMP')?'none':'block'}"><label>Nome</label><input ${(tipoAtual==='Tag'||tipoAtual==='TagMP')?'':'required'} id="f_nome" list="${(isEtq&&tipoAtual==='Ribbon')?'ribbonNomesList':''}" value="${esc(it.nome)}" placeholder="${isEtq?'Ex.: Ribbon preto 110mm / Tag 35x60':'Ex.: Camiseta branca'}"></div>
+        ${isEtq ? `<datalist id="ribbonNomesList">${(d.ribbonDescricoes||[]).map(r=>`<option value="${esc(r.nome)}">`).join('')}</datalist>` : ''}
+        ${ribbonFields}${tagMpFields}${tagProntoFields}${vimatsFields}
+        <div class="field-row3">
+          <div class="field"><label id="qtyLabel">${qtyLabelTxt}</label><input required type="number" step="0.001" min="0" id="f_quantidade" value="${(isEtq&&tipoAtual==='TagMP')?tagEtiquetasDisponiveis(it):it.quantidade}"></div>
+          <div class="field"><label>Unidade</label>${isEtq ? `<input id="f_unidade" value="${unidadeDefault}" readonly>` : `<input list="unidadesList" id="f_unidade" value="${esc(it.unidade)}">`}</div>
+          <div class="field"><label>Estoque mínimo</label><input type="number" step="0.001" min="0" id="f_min" value="${it.estoqueMinimo}"></div>
+        </div>
+        <div class="field-row">
+          <div class="field" id="custoWrap" style="display:${showCusto?'block':'none'}"><label id="custoLabel">${custoLabelTxt}</label><input type="number" step="0.001" min="0" id="f_custo" value="${it.custo}" oninput="updatePricingPreview()"></div>
+          <div class="field" id="precoWrap" style="display:${showPreco?'block':'none'}"><label id="precoLabel">${precoLabelTxt}</label><input type="number" step="0.001" min="0" id="f_preco" value="${it.preco}"></div>
+        </div>
+        <datalist id="unidadesList"><option value="un"><option value="kg"><option value="g"><option value="l"><option value="ml"><option value="m"><option value="cx"><option value="pct"></datalist>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
+    </form>
+  `);
+  updatePricingPreview();
+  updateRibbonCusto();
+}
+function handleEmpresaSelect(sel){
+  if(sel.value==='__new__'){
+    const nome = prompt('Nome da nova empresa:');
+    if(nome && nome.trim()){
+      const d = cur();
+      if(!d.empresas) d.empresas=[];
+      const novo = {id:uid(), nome:nome.trim()};
+      d.empresas.push(novo);
+      saveWS();
+      const opt = document.createElement('option');
+      opt.value = novo.id; opt.textContent = novo.nome;
+      sel.insertBefore(opt, sel.lastElementChild);
+      sel.value = novo.id;
+    } else { sel.value=''; }
+  }
+}
+function toggleTipoItem(tipo){
+  const rf = document.getElementById('ribbonFields'); if(rf) rf.style.display = tipo==='Ribbon'?'block':'none';
+  const mf = document.getElementById('tagMpFields'); if(mf) mf.style.display = tipo==='TagMP'?'block':'none';
+  const pf = document.getElementById('tagProntoFields'); if(pf) pf.style.display = tipo==='Tag'?'block':'none';
+  const un = document.getElementById('f_unidade'); if(un) un.value = tipo==='Ribbon'?'metro':tipo==='TagMP'?'rolo':'un';
+  const ql = document.getElementById('qtyLabel'); if(ql) ql.textContent = tipo==='Tag' ? 'Quantidade produzida (unidades)' : 'Quantidade em estoque ('+(tipo==='Ribbon'?'metros':'unidades')+')';
+  const cl = document.getElementById('custoLabel'); if(cl) cl.textContent = 'Custo por rolo (R$)';
+  const custoWrap = document.getElementById('custoWrap'); if(custoWrap) custoWrap.style.display = (tipo==='Ribbon'||tipo==='Tag') ? 'none' : 'block';
+  const pl = document.getElementById('precoLabel'); if(pl) pl.textContent = 'Preço de venda (por milheiro - 1000 un)';
+  const precoWrap = document.getElementById('precoWrap'); if(precoWrap) precoWrap.style.display = tipo==='Tag' ? 'block' : 'none';
+  const nomeWrap = document.getElementById('nomeFieldWrap'); const nomeInput = document.getElementById('f_nome');
+  const hideNome = tipo==='Tag' || tipo==='TagMP';
+  if(nomeWrap) nomeWrap.style.display = hideNome ? 'none' : 'block';
+  if(nomeInput){
+    if(hideNome){ nomeInput.removeAttribute('required'); } else { nomeInput.setAttribute('required',''); }
+    if(tipo==='Ribbon'){ nomeInput.setAttribute('list','ribbonNomesList'); } else { nomeInput.removeAttribute('list'); }
+  }
+  renderPricingSectionVisibility(tipo);
+  updatePricingPreview();
+}
+function updateDescricaoProduto(){
+  const sel = document.getElementById('f_descricaoproduto');
+  const tam = sel ? tamanhoObj(sel.value) : null;
+  const nomeInput = document.getElementById('f_nome');
+  if(nomeInput) nomeInput.value = tam ? tam.nome : '';
+  const precoInput = document.getElementById('f_preco');
+  if(precoInput && tam) precoInput.value = tam.precoMilheiro||0;
+  updatePricingPreview();
+}
+function updateDescricaoMP(){
+  const sel = document.getElementById('f_descricaomp');
+  const tam = sel ? tamanhoObj(sel.value) : null;
+  const nomeInput = document.getElementById('f_nome');
+  if(nomeInput) nomeInput.value = tam ? tam.nome : '';
+  updatePricingPreview();
+}
+function updateRibbonCusto(){
+  const rEl = document.getElementById('f_precorolo');
+  const mEl = document.getElementById('f_metrosrolo');
+  const hint = document.getElementById('ribbonCustoHint');
+  if(!rEl || !mEl) return;
+  const precoRolo = parseFloat(rEl.value)||0;
+  const metros = parseFloat(mEl.value)||0;
+  const custoMetro = metros>0 ? precoRolo/metros : 0;
+  if(hint) hint.textContent = 'Custo por metro: '+fmtMoney3(custoMetro);
+  window._custoRibbonCalculado = custoMetro;
+}
+function renderPricingSectionVisibility(tipo){
+  const preview = document.getElementById('pricingPreview');
+  const margemField = document.getElementById('margemField');
+  const usarBtn = document.getElementById('usarPrecoBtn');
+  const show = tipo==='Tag' ? 'block' : 'none';
+  if(preview) preview.style.display = show;
+  if(margemField) margemField.style.display = show;
+  if(usarBtn) usarBtn.style.display = tipo==='Tag' ? 'inline-block' : 'none';
+}
+function updatePricingPreview(){
+  const previewEl = document.getElementById('pricingPreview');
+  if(!previewEl) return;
+  const custoEl = document.getElementById('f_custo');
+  const margemEl = document.getElementById('f_margem');
+  const custoUn = custoEl ? (parseFloat(custoEl.value)||0) : 0;
+  const margem = margemEl ? (parseFloat(margemEl.value)||0) : 0;
+  const precoUn = margem<100 ? custoUn/(1-margem/100) : 0;
+  const precoMilheiro = precoUn*1000;
+  window._precoSugeridoMilheiro = precoMilheiro;
+  previewEl.innerHTML = `<strong>Custo:</strong> ${fmtMoney3(custoUn)}/un<br><strong>Preço sugerido:</strong> ${fmtMoney3(precoUn)}/un · <strong>${fmtMoney(precoMilheiro)}/milheiro</strong>`;
+}
+function usarPrecoSugerido(){
+  const el = document.getElementById('f_preco');
+  if(el && window._precoSugeridoMilheiro){ el.value = window._precoSugeridoMilheiro.toFixed(3); }
+}
+function saveEstoque(e){
+  e.preventDefault();
+  const isEtq = ws==='etiquetag';
+  const tipo = isEtq ? document.querySelector('input[name="tipoItem"]:checked').value : '';
+  const tamanhoElId = (isEtq && tipo==='Tag') ? 'f_descricaoproduto' : (isEtq && tipo==='TagMP') ? 'f_descricaomp' : 'f_tamanho';
+  if(isEtq && (tipo==='TagMP'||tipo==='Tag') && !document.getElementById(tamanhoElId).value){ showToast('Selecione a descrição do produto.', 'bad'); return; }
+  const d = cur();
+  const custoExistente = editingId ? ((d.estoque.find(x=>x.id===editingId)||{}).custo||0) : 0;
+  const tamanhoIdSelecionado = document.getElementById(tamanhoElId) ? document.getElementById(tamanhoElId).value : '';
+  let quantidadeInformada = parseFloat(document.getElementById('f_quantidade').value)||0;
+  let estoqueMinimoInformado = parseFloat(document.getElementById('f_min').value)||0;
+  if(isEtq && tipo==='TagMP'){
+    const tamSel = tamanhoObj(tamanhoIdSelecionado);
+    const uprSel = tamSel ? (tamSel.unidadesPorRolo||0) : 0;
+    if(uprSel>0){ quantidadeInformada = quantidadeInformada/uprSel; estoqueMinimoInformado = estoqueMinimoInformado/uprSel; }
+  }
+  const data = {
+    nome: document.getElementById('f_nome').value.trim(),
+    tipo,
+    tipoRibbon: (isEtq && tipo==='Ribbon') ? document.getElementById('f_tiporibbon').value : '',
+    tamanhoId: tamanhoIdSelecionado,
+    numeracaoId: (isEtq && tipo==='Tag' && document.getElementById('f_numeracao')) ? document.getElementById('f_numeracao').value : '',
+    categoriaTag: 'Tag',
+    categoria: !isEtq ? document.getElementById('f_categoria').value.trim() : '',
+    empresaId: document.getElementById('f_empresa') ? document.getElementById('f_empresa').value : '',
+    fornecedor: document.getElementById('f_fornecedor') ? document.getElementById('f_fornecedor').value.trim() : '',
+    metrosPorRolo: (isEtq && tipo==='Ribbon' && document.getElementById('f_metrosrolo')) ? (parseFloat(document.getElementById('f_metrosrolo').value)||0) : 0,
+    precoRolo: (isEtq && tipo==='Ribbon' && document.getElementById('f_precorolo')) ? (parseFloat(document.getElementById('f_precorolo').value)||0) : 0,
+    quantidade: quantidadeInformada,
+    unidade: document.getElementById('f_unidade').value.trim()||'un',
+    estoqueMinimo: estoqueMinimoInformado,
+    custo: (isEtq && tipo==='Ribbon') ? (window._custoRibbonCalculado||0) : (isEtq && tipo==='Tag') ? custoExistente : (document.getElementById('f_custo') ? (parseFloat(document.getElementById('f_custo').value)||0) : 0),
+    margem: 0,
+    preco: (isEtq && tipo==='Ribbon') ? (window._custoRibbonCalculado||0) : (document.getElementById('f_preco') ? (parseFloat(document.getElementById('f_preco').value)||0) : 0),
+    vendavel: isEtq ? (tipo==='Tag') : true,
+  };
+  if(editingId){ Object.assign(d.estoque.find(x=>x.id===editingId), data); }
+  else { data.id = uid(); const info = itemCodeInfo(tipo); data.codigo = nextCode(info.prefix, info.key); d.estoque.push(data); }
+  closeModal(); saveWS(); renderAll();
+  showToast('Salvo com sucesso.', 'good');
+}
+function deleteEstoqueItem(id){
+  const d = cur();
+  if(d.estoque.some(x=>x.ribbonId===id)){ showToast('Este ribbon está referenciado por um produto. Remova o vínculo antes de excluir.', 'bad'); return; }
+  if(!confirm('Tem certeza que deseja excluir este item? Essa ação não pode ser desfeita.')) return;
+  d.estoque = d.estoque.filter(x=>x.id!==id);
+  saveWS(); renderAll();
+  showToast('Item excluído.', 'good');
+}
+
+function openAjusteModal(id){
+  const item = cur().estoque.find(x=>x.id===id);
+  const isTagMp = ws==='etiquetag' && item.tipo==='TagMP';
+  const isRibbon = ws==='etiquetag' && item.tipo==='Ribbon';
+  const tam = isTagMp ? tamanhoObj(item.tamanhoId) : null;
+  const upr = tam ? (tam.unidadesPorRolo||0) : 0;
+  const metrosPorRolo = isRibbon ? (item.metrosPorRolo||0) : 0;
+  const temConversao = (isTagMp && upr>0) || (isRibbon && metrosPorRolo>0);
+  const unidadeBase = isRibbon ? 'metros' : 'unidades';
+  const unidadeAlt = 'rolos';
+  const estoqueAtualTxt = isRibbon
+    ? `${fmtQty(item.quantidade)} metros${metrosPorRolo>0?' ('+fmtQty(item.quantidade/metrosPorRolo)+' rolos)':''}`
+    : isTagMp
+      ? `${fmtQty(item.quantidade)} rolos${upr>0?' ('+fmtQty(item.quantidade*upr)+' un.)':''}`
+      : `${fmtQty(item.quantidade)} ${esc(item.unidade)}`;
+  openModal(`
+    <div class="modal-head"><h3>Ajustar estoque</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="applyAjuste(event,'${id}')">
+      <div class="modal-body">
+        <p style="margin-top:0;color:var(--ink-soft);font-size:13px;">${esc(tagFullLabel(item))} — estoque atual: <strong class="mono">${estoqueAtualTxt}</strong></p>
+        <div class="field"><label>Tipo de movimento</label>
+          <div class="radio-row"><label><input type="radio" name="tipo" value="entrada" checked> Entrada</label><label><input type="radio" name="tipo" value="saida"> Saída</label></div>
+        </div>
+        ${temConversao ? `
+        <div class="field"><label>Registrar em</label>
+          <div class="radio-row"><label><input type="radio" name="unidadeAjuste" value="base" checked> ${esc(unidadeBase.charAt(0).toUpperCase()+unidadeBase.slice(1))}</label><label><input type="radio" name="unidadeAjuste" value="rolo"> Rolos</label></div>
+        </div>
+        <div class="field"><label>Quantidade</label><input required type="number" step="0.001" min="0.001" id="f_qtd" placeholder="0">
+          <p class="hint">1 rolo = ${fmtQty(isRibbon?metrosPorRolo:upr)} ${unidadeBase}. Informe do jeito que for mais fácil — o sistema converte sozinho.</p></div>`
+        : `<div class="field"><label>Quantidade (${esc(item.unidade)})</label><input required type="number" step="0.001" min="0.001" id="f_qtd" placeholder="0"></div>`}
+        <div class="field"><label>Motivo (opcional)</label><input id="f_motivo" placeholder="Ex.: compra, perda, ajuste de inventário"></div>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Confirmar</button></div>
+    </form>`);
+}
+function applyAjuste(e, id){
+  e.preventDefault();
+  const item = cur().estoque.find(x=>x.id===id);
+  const tipo = document.querySelector('input[name="tipo"]:checked').value;
+  let qtd = parseFloat(document.getElementById('f_qtd').value)||0;
+  const unidadeSel = document.querySelector('input[name="unidadeAjuste"]:checked');
+  if(unidadeSel && unidadeSel.value==='rolo'){
+    if(ws==='etiquetag' && item.tipo==='TagMP'){
+      const tam = tamanhoObj(item.tamanhoId);
+      const upr = tam ? (tam.unidadesPorRolo||0) : 0;
+      if(upr>0) qtd = qtd*upr;
+    } else if(ws==='etiquetag' && item.tipo==='Ribbon'){
+      const mpr = item.metrosPorRolo||0;
+      if(mpr>0) qtd = qtd*mpr;
+    }
+  }
+  if(tipo==='saida' && qtd>item.quantidade){ showToast('Quantidade de saída maior que o estoque disponível.', 'bad'); return; }
+  item.quantidade = tipo==='entrada' ? item.quantidade+qtd : item.quantidade-qtd;
+  closeModal(); saveWS(); renderAll();
+  showToast('Estoque atualizado.', 'good');
+}
+
+function openProducaoModal(tagMpId){
+  const d = cur();
+  const mp = d.estoque.find(x=>x.id===tagMpId);
+  const tam = tamanhoObj(mp.tamanhoId);
+  const ribbons = d.estoque.filter(x=>x.tipo==='Ribbon');
+  const empresasCatalog = d.empresas||[];
+  const numeracoes = d.numeracoes||[];
+  const referencias = allReferenciasList();
+  const pedidosRelacionados = d.pedidos.filter(p=>p.status==='Pendente' && p.itens.some(it=>it.tamanhoId===mp.tamanhoId));
+  openModal(`
+    <div class="modal-head"><h3>Produzir · ${esc(mp.nome)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="saveProducao(event,'${tagMpId}')">
+      <div class="modal-body">
+        ${pedidosRelacionados.length ? `<div class="field"><label>Pedido relacionado (opcional)</label><select id="f_pedidorel" onchange="preencherDePedido(this.value)">
+          <option value="">Nenhum — produção avulsa</option>
+          ${pedidosRelacionados.map(p=>`<option value="${p.id}">${esc(p.numero)} — ${esc(p.cliente)}</option>`).join('')}
+        </select><p class="hint">Selecionar preenche empresa, tamanho, referência e descrição automaticamente a partir do pedido.</p></div>` : ''}
+        <div class="field"><label>Empresa / Marca</label><select id="f_empresa" onchange="handleEmpresaSelect(this)">
+          <option value="">Nenhuma</option>
+          ${empresasCatalog.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}
+          <option value="__new__">+ Nova empresa...</option>
+        </select></div>
+        <div class="field"><label>Tipo de Tag</label><input value="${esc(mp.nome)} (${it_categoriaLabel(mp)})" readonly>
+          <p class="hint">Estoque: ${fmtQty(tagEtiquetasDisponiveis(mp))} unidades (${fmtQty(mp.quantidade)} rolos)</p></div>
+        ${numeracoes.length ? `<div class="field"><label>Tamanho / Numeração</label>
+          <div class="radio-row" id="numeracaoBtns">
+            ${numeracoes.map((n,i)=>`<button type="button" class="btn btn-sm ${i===0?'btn-accent':'btn-ghost'}" data-numeracao="${n.id}" onclick="selecionarNumeracao(this)">${esc(n.nome)}</button>`).join('')}
+          </div><input type="hidden" id="f_numeracao" value="${numeracoes[0].id}"></div>` : `<input type="hidden" id="f_numeracao" value="">`}
+        ${referencias.length ? `<div class="field"><label>Referência (opcional)</label><select id="f_referencia" onchange="atualizarDescricaoRef()">
+          <option value="">Nenhuma</option>
+          ${referencias.map(r=>`<option value="${r.id}">${esc(r.empresaNome)} · ${esc(r.codigo)}</option>`).join('')}
+        </select></div>
+        <div class="field"><label>Descrição</label><input id="f_descricaoref" readonly placeholder="Preenchida pela referência"></div>` : ''}
+        <div class="field"><label>Ribbon</label><select id="f_ribbon" onchange="updateProducaoPreview()">
+          <option value="">Não descontar ribbon</option>
+          ${ribbons.map(r=>`<option value="${r.id}">${esc(r.nome)} (${esc(r.tipoRibbon)})</option>`).join('')}
+        </select><p class="hint" id="ribbonEstoqueHint"></p></div>
+        <div class="field"><label>Quantidade a Produzir</label><input required type="number" step="0.001" min="0.001" id="f_qtd" placeholder="Ex: 1000" oninput="updateProducaoPreview()"></div>
+        <div class="field"><label>Valor de Venda do Milheiro (R$)</label><input type="number" step="0.001" min="0" id="f_precomilheiro" value="${tam&&tam.precoMilheiro?tam.precoMilheiro:''}" placeholder="Ex: 25.00" oninput="updateProducaoPreview()">
+          <p class="hint" id="valorUnitarioHint">Valor unitário: R$ 0.000</p></div>
+        <div class="field"><label>Responsável (quem produziu)</label><input id="f_responsavel" placeholder="Ex.: Mateus"></div>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconFactory()} Registrar Produção</button></div>
+    </form>`);
+  updateProducaoPreview();
+}
+function preencherDePedido(pedidoId){
+  if(!pedidoId) return;
+  const d = cur();
+  const p = d.pedidos.find(x=>x.id===pedidoId);
+  if(!p) return;
+  const mpId = document.querySelector('#modalBox form').getAttribute('onsubmit').match(/'([^']+)'/)[1];
+  const mp = d.estoque.find(x=>x.id===mpId);
+  const item = p.itens.find(it=>it.tamanhoId===mp.tamanhoId);
+  if(!item) return;
+  if(item.empresaId){ const empSel=document.getElementById('f_empresa'); if(empSel) empSel.value = item.empresaId; }
+  if(item.numeracaoId){ const btn = document.querySelector('#numeracaoBtns button[data-numeracao="'+item.numeracaoId+'"]'); if(btn) selecionarNumeracao(btn); }
+  const refSel = document.getElementById('f_referencia');
+  if(refSel && item.referencia){
+    const list = allReferenciasList();
+    const found = list.find(r=>r.codigo===item.referencia && (!item.empresaId || r.empresaNome));
+    if(found){ refSel.value = found.id; atualizarDescricaoRef(); }
+  }
+  const qtdEl = document.getElementById('f_qtd'); if(qtdEl && item.quantidade){ qtdEl.value = item.quantidade; }
+  updateProducaoPreview();
+}
+function atualizarDescricaoRef(){
+  const sel = document.getElementById('f_referencia');
+  const ref = sel ? allReferenciasList().find(r=>r.id===sel.value) : null;
+  const descInput = document.getElementById('f_descricaoref');
+  if(descInput) descInput.value = ref ? ref.descricao : '';
+}
+function it_categoriaLabel(it){ return it.categoriaTag==='Composição' ? 'Etiqueta de Composição' : 'Tag'; }
+function selecionarNumeracao(btn){
+  document.querySelectorAll('#numeracaoBtns button').forEach(b=>b.className='btn btn-sm btn-ghost');
+  btn.className = 'btn btn-sm btn-accent';
+  document.getElementById('f_numeracao').value = btn.dataset.numeracao;
+}
+function updateProducaoPreview(){
+  const d = cur();
+  const ribbonSel = document.getElementById('f_ribbon');
+  const ribbon = ribbonSel && ribbonSel.value ? d.estoque.find(x=>x.id===ribbonSel.value) : null;
+  const hint = document.getElementById('ribbonEstoqueHint');
+  if(hint) hint.textContent = ribbon ? `Estoque: ${fmtQty(ribbon.quantidade)}m (${fmtQty(ribbon.metrosPorRolo>0?ribbon.quantidade/ribbon.metrosPorRolo:0)} rolos)` : '';
+  const precoEl = document.getElementById('f_precomilheiro');
+  const preco = precoEl ? (parseFloat(precoEl.value)||0) : 0;
+  const vuHint = document.getElementById('valorUnitarioHint');
+  if(vuHint) vuHint.textContent = 'Valor unitário: '+fmtMoney3(preco/1000);
+}
+function saveProducao(e, tagMpId){
+  e.preventDefault();
+  const d = cur();
+  const mp = d.estoque.find(x=>x.id===tagMpId);
+  const tam = tamanhoObj(mp.tamanhoId);
+  const upr = tam ? (tam.unidadesPorRolo||0) : 0;
+  const quantidade = parseFloat(document.getElementById('f_qtd').value)||0;
+  if(quantidade<=0){ showToast('Informe uma quantidade válida.', 'bad'); return; }
+  const rollsNecessarios = upr>0 ? quantidade/upr : quantidade;
+  if(rollsNecessarios > mp.quantidade){ showToast('Matéria-prima insuficiente para essa quantidade.', 'bad'); return; }
+  const ribbonId = document.getElementById('f_ribbon').value;
+  const consumoM = tam ? getConsumoMetros(tam) : 0;
+  let metrosRibbon = 0; let ribbon = null;
+  if(ribbonId){
+    ribbon = d.estoque.find(x=>x.id===ribbonId);
+    metrosRibbon = quantidade*consumoM;
+    if(ribbon && metrosRibbon>ribbon.quantidade){ showToast('Ribbon insuficiente para essa quantidade.', 'bad'); return; }
+  }
+  const numeracaoId = document.getElementById('f_numeracao').value;
+  const empresaId = document.getElementById('f_empresa').value;
+  const responsavel = document.getElementById('f_responsavel').value.trim();
+  const precoMilheiro = parseFloat(document.getElementById('f_precomilheiro').value)||0;
+  const refSel = document.getElementById('f_referencia');
+  const refInfo = refSel && refSel.value ? allReferenciasList().find(r=>r.id===refSel.value) : null;
+  const pedidoRelEl = document.getElementById('f_pedidorel');
+  const pedidoRelId = pedidoRelEl ? pedidoRelEl.value : '';
+
+  mp.quantidade -= rollsNecessarios;
+  if(ribbon) ribbon.quantidade -= metrosRibbon;
+
+  const custoTagUn = upr>0 ? mp.custo/upr : 0;
+  const custoRibbonUn = ribbon ? ribbon.preco*consumoM : 0;
+  const custoNovoUn = custoTagUn + custoRibbonUn;
+
+  let pronto = d.estoque.find(x=>x.tipo==='Tag' && x.tamanhoId===mp.tamanhoId && x.categoriaTag===mp.categoriaTag && x.numeracaoId===numeracaoId && x.empresaId===empresaId);
+  if(pronto){
+    const custoMedio = (pronto.quantidade*pronto.custo + quantidade*custoNovoUn) / (pronto.quantidade+quantidade || 1);
+    pronto.quantidade += quantidade;
+    pronto.custo = custoMedio;
+    if(ribbonId) pronto.ribbonId = ribbonId;
+    if(precoMilheiro>0) pronto.preco = precoMilheiro;
+  } else {
+    pronto = { id: uid(), codigo: nextCode('TG','tg'), nome: mp.nome, tipo:'Tag', tipoRibbon:'',
+      tamanhoId: mp.tamanhoId, categoriaTag: mp.categoriaTag, numeracaoId, empresaId, ribbonId, fornecedor:'', metrosPorRolo:0,
+      quantidade, unidade:'un', estoqueMinimo:0, custo:custoNovoUn, margem:0, preco:precoMilheiro, vendavel:true };
+    d.estoque.push(pronto);
+  }
+  d.producoes.push({ id: uid(), data: todayISO(), responsavel, tamanhoId: mp.tamanhoId, numeracaoId, empresaId, quantidade, metrosRibbon, ribbonId, tagProntoId: pronto.id,
+    referencia: refInfo?refInfo.codigo:'', descricaoRef: refInfo?refInfo.descricao:'', pedidoId: pedidoRelId||'' });
+  closeModal(); saveWS(); renderAll();
+  showToast('Produção registrada! '+fmtQty(quantidade)+' un. adicionadas aos produtos prontos.', 'good');
+}
+function printProducao(id){
+  const d = cur();
+  const p = d.producoes.find(x=>x.id===id);
+  if(!p) return;
+  const tam = tamanhoObj(p.tamanhoId);
+  const num = numeracaoObj(p.numeracaoId);
+  const emp = empresaObj(p.empresaId);
+  const rb = p.ribbonId ? d.estoque.find(x=>x.id===p.ribbonId) : null;
+  const ped = p.pedidoId ? d.pedidos.find(x=>x.id===p.pedidoId) : null;
+  const linhas = [
+    ['Produto', (tam?tam.nome:'—')+(num?' - '+num.nome:'')],
+    ['Empresa / Marca', emp?emp.nome:'—'],
+    ['Referência', p.referencia||'—'],
+    ['Descrição', p.descricaoRef||'—'],
+    ['Quantidade produzida', fmtQty(p.quantidade)+' un.'],
+    ['Ribbon utilizado', rb?rb.nome+' ('+fmtQty(p.metrosRibbon)+'m)':'—'],
+    ['Responsável', p.responsavel||'—'],
+    ['Pedido de origem', ped?ped.numero+' — '+ped.cliente:'Produção avulsa'],
+  ];
+  const html = `<div class="doc">${docHeadHtml('Comprovante de produção', 'PRD-'+p.data.slice(0,10))}
+    <table><tbody>${linhas.map(l=>`<tr><td style="font-weight:600;">${esc(l[0])}</td><td>${esc(l[1])}</td></tr>`).join('')}</tbody></table>
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+  const text = buildReceiptText('Comprovante de produção', 'PRD-'+p.data.slice(0,10), linhas.map(l=>l[0]+': '+l[1]), [], []);
+  printDocument(html, text);
+}
+
+function renderTamanhos(){
+  const d = cur(); const isEtq = ws==='etiquetag';
+  let html = '';
+  html += `<div class="panel"><div class="panel-head"><div><h3>Materiais cadastrados</h3><p>Todos os itens do estoque, com edição rápida e o preço usado em pedidos/vendas.</p></div>
+    <button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button></div>
+    ${d.estoque.length ? `<table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Estoque</th><th>Preço</th><th></th></tr></thead>
+    <tbody>${[...d.estoque].sort((a,b)=>a.nome.localeCompare(b.nome)).map(it=>{
+      const tipoTxt = isEtq ? (it.tipo==='Ribbon'?'Ribbon':it.tipo==='TagMP'?'Matéria-prima':'Produto pronto') : (it.categoria||'Item');
+      const precoTxt = isEtq ? (it.tipo==='Ribbon'?fmtMoney(it.preco)+'/m':it.tipo==='TagMP'?fmtMoney(it.custo)+'/rolo (custo)':fmtMoney(it.preco)+'/milheiro') : fmtMoney(it.preco);
+      return `<tr><td><span class="code-tag">${esc(it.codigo)}</span></td><td>${esc(tagFullLabel(it))}</td><td>${esc(tipoTxt)}</td><td>${fmtQty(it.quantidade)} ${esc(it.unidade)}</td><td class="mono">${precoTxt}</td>
+      <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
+      <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button></div></td></tr>`;
+    }).join('')}</tbody></table>`
+    : `<div class="empty" style="padding:24px;"><p>Nenhum material cadastrado ainda.</p></div>`}
+  </div>`;
+  html += `<div class="panel"><div class="panel-head"><h3>${isEtq?'Modelos':'Tamanhos'}</h3>
+    <button class="btn btn-accent btn-sm" onclick="openTamanhoForm()">${iconPlus()} Novo modelo</button></div>`;
+  if(!d.tamanhos.length){
+    html += `<div class="empty" style="padding:24px;"><p>Nenhum produto cadastrado.</p></div>`;
+  } else if(isEtq){
+    html += `<table><thead><tr><th>Nome</th><th>Dimensão</th><th>Un./rolo</th><th>Preço/milheiro</th><th>Consumo ribbon (m/un)</th><th></th></tr></thead>
+      <tbody>${d.tamanhos.map(t=>{ const cm=getConsumoMetros(t);
+        return `<tr><td>${esc(t.nome)}</td><td class="mono">${esc(t.dimensao)||'—'}</td><td class="mono">${fmtQty(t.unidadesPorRolo)}</td><td class="mono">${fmtMoney(t.precoMilheiro||0)}</td><td class="mono">${fmtQty(cm)}</td>
+        <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openTamanhoForm('${t.id}')">${iconEdit()}</button>
+        <button class="icon-btn" title="Excluir" onclick="deleteTamanho('${t.id}')">${iconTrash()}</button></div></td></tr>`;
+      }).join('')}</tbody></table>`;
+  } else {
+    html += `<table><thead><tr><th>Tamanho</th><th></th></tr></thead>
+      <tbody>${d.tamanhos.map(t=>`<tr><td>${esc(t.nome)}</td>
+        <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openTamanhoForm('${t.id}')">${iconEdit()}</button>
+        <button class="icon-btn" title="Excluir" onclick="deleteTamanho('${t.id}')">${iconTrash()}</button></div></td></tr>`).join('')}
+      </tbody></table>`;
+  }
+  html += `</div>`;
+  if(isEtq){
+    html += `<div class="panel"><div class="panel-head"><div><h3>Numerações</h3><p>Tamanho impresso na etiqueta: P, M, G, numeração 36-58, etc.</p></div>
+      <button class="btn btn-accent btn-sm" onclick="openNumeracaoForm()">${iconPlus()} Nova numeração</button></div>
+      ${(d.numeracoes||[]).length ? `<table><thead><tr><th>Numeração</th><th></th></tr></thead>
+      <tbody>${d.numeracoes.map(n=>`<tr><td><span class="num-tag">${esc(n.nome)}</span></td>
+        <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openNumeracaoForm('${n.id}')">${iconEdit()}</button>
+        <button class="icon-btn" title="Excluir" onclick="deleteNumeracao('${n.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
+      : `<div class="empty" style="padding:24px;"><p>Nenhuma numeração cadastrada.</p></div>`}
+    </div>`;
+    html += `<div class="panel"><div class="panel-head"><div><h3>Descrições de Ribbon</h3><p>Nomes padrão sugeridos ao cadastrar um novo Ribbon.</p></div>
+      <button class="btn btn-accent btn-sm" onclick="openRibbonDescForm()">${iconPlus()} Nova descrição</button></div>
+      ${(d.ribbonDescricoes||[]).length ? `<table><thead><tr><th>Descrição</th><th></th></tr></thead>
+      <tbody>${d.ribbonDescricoes.map(r=>`<tr><td>${esc(r.nome)}</td>
+        <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openRibbonDescForm('${r.id}')">${iconEdit()}</button>
+        <button class="icon-btn" title="Excluir" onclick="deleteRibbonDesc('${r.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
+      : `<div class="empty" style="padding:24px;"><p>Nenhuma descrição cadastrada.</p></div>`}
+    </div>`;
+  }
+  html += `<div class="panel"><div class="panel-head"><div><h3>Empresas</h3><p>Marcas/clientes para quem você confecciona ou vende. ${isEtq?'Cada empresa pode ter suas próprias referências.':''}</p></div>
+    <button class="btn btn-accent btn-sm" onclick="openEmpresaForm()">${iconPlus()} Nova empresa</button></div>
+    ${(d.empresas||[]).length ? `<table><thead><tr><th>Empresa</th>${isEtq?'<th>Referências</th>':''}<th></th></tr></thead>
+    <tbody>${d.empresas.map(e=>`<tr><td>${esc(e.nome)}</td>${isEtq?`<td class="mono">${(e.referencias||[]).length}</td>`:''}
+      <td><div class="row-actions">${isEtq?`<button class="icon-btn" title="Referências" onclick="openReferenciasModal('${e.id}')">${iconTag2()}</button>`:''}<button class="icon-btn" title="Editar" onclick="openEmpresaForm('${e.id}')">${iconEdit()}</button>
+      <button class="icon-btn" title="Excluir" onclick="deleteEmpresa('${e.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
+    : `<div class="empty" style="padding:24px;"><p>Nenhuma empresa cadastrada.</p></div>`}
+  </div>`;
+  return html;
+}
+function openRibbonDescForm(id){
+  editingId = id || null;
+  const d = cur();
+  const r = id ? d.ribbonDescricoes.find(x=>x.id===id) : {nome:''};
+  openModal(`
+    <div class="modal-head"><h3>${id?'Editar':'Nova'} descrição de Ribbon</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="saveRibbonDesc(event)">
+      <div class="modal-body"><div class="field"><label>Descrição</label><input required id="f_nome" value="${esc(r.nome)}" placeholder="Ex.: Ribbon Preto 110mm"></div></div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
+    </form>`);
+}
+function saveRibbonDesc(e){
+  e.preventDefault();
+  const data = { nome: document.getElementById('f_nome').value.trim() };
+  const d = cur();
+  if(!d.ribbonDescricoes) d.ribbonDescricoes = [];
+  if(editingId){ Object.assign(d.ribbonDescricoes.find(x=>x.id===editingId), data); }
+  else { data.id = uid(); d.ribbonDescricoes.push(data); }
+  closeModal(); saveWS(); renderAll();
+  showToast('Descrição salva.', 'good');
+}
+function deleteRibbonDesc(id){
+  const d = cur();
+  if(!confirm('Excluir esta descrição?')) return;
+  d.ribbonDescricoes = d.ribbonDescricoes.filter(r=>r.id!==id);
+  saveWS(); renderAll();
+  showToast('Descrição excluída.', 'good');
+}
+function openTamanhoForm(id){
+  editingId = id || null;
+  const isEtq = ws==='etiquetag';
+  const d = cur();
+  const t = id ? d.tamanhos.find(x=>x.id===id) : {nome:'',dimensao:'',unidadesPorRolo:0,passoMm:0,etiquetasPorMetroManual:0,precoMilheiro:0};
+  openModal(`
+    <div class="modal-head"><h3>${id?'Editar':'Novo'} ${isEtq?'modelo':'tamanho'}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="saveTamanho(event)">
+      <div class="modal-body">
+        <div class="field"><label>Nome do ${isEtq?'modelo':'tamanho'}</label><input required id="f_nome" value="${esc(t.nome)}" placeholder="${isEtq?'Ex.: Tag Padrão':'Ex.: M'}"></div>
+        ${isEtq ? `
+        <div class="field"><label>Dimensão</label><input id="f_dimensao" value="${esc(t.dimensao)}" placeholder="Ex.: 35x60mm"></div>
+        <div class="field"><label>Unidades por rolo</label><input required type="number" step="0.001" min="0" id="f_upr" value="${t.unidadesPorRolo}"></div>
+        <div class="field-row">
+          <div class="field"><label>Passo de impressão (mm)</label><input type="number" step="0.01" min="0" id="f_passo" value="${t.passoMm}"></div>
+          <div class="field"><label>Etiquetas/metro (se souber, opcional)</label><input type="number" step="0.001" min="0" id="f_epm" value="${t.etiquetasPorMetroManual}"></div>
+        </div>
+        <p class="hint">O passo é a altura da etiqueta + o espaço entre etiquetas no rolo. Esses valores definem quanto ribbon é consumido por etiqueta.</p>
+        <div class="field"><label>Valor de venda por milheiro (R$)</label><input type="number" step="0.001" min="0" id="f_precomilheiro" value="${t.precoMilheiro||0}"></div>
+        <p class="hint">Esse é o preço de referência deste produto — aparece automaticamente ao selecioná-lo num pedido ou ao produzir, mas pode ser ajustado caso a caso.</p>` : ''}
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
+    </form>`);
+}
+function saveTamanho(e){
+  e.preventDefault();
+  const isEtq = ws==='etiquetag';
+  const data = { nome: document.getElementById('f_nome').value.trim(),
+    dimensao: isEtq ? document.getElementById('f_dimensao').value.trim() : '',
+    unidadesPorRolo: isEtq ? (parseFloat(document.getElementById('f_upr').value)||0) : 0,
+    passoMm: isEtq ? (parseFloat(document.getElementById('f_passo').value)||0) : 0,
+    etiquetasPorMetroManual: isEtq ? (parseFloat(document.getElementById('f_epm').value)||0) : 0,
+    precoMilheiro: isEtq ? (parseFloat(document.getElementById('f_precomilheiro').value)||0) : 0 };
+  const d = cur();
+  if(editingId){ Object.assign(d.tamanhos.find(t=>t.id===editingId), data); }
+  else { data.id = uid(); d.tamanhos.push(data); }
+  closeModal(); saveWS(); renderAll();
+  showToast('Tamanho salvo.', 'good');
+}
+function deleteTamanho(id){
+  const d = cur();
+  if(d.estoque.some(x=>x.tamanhoId===id)){ showToast('Este tamanho está em uso por itens cadastrados. Altere-os antes de excluir.', 'bad'); return; }
+  if(!confirm('Excluir este tamanho?')) return;
+  d.tamanhos = d.tamanhos.filter(t=>t.id!==id);
+  saveWS(); renderAll();
+  showToast('Tamanho excluído.', 'good');
+}
+function openNumeracaoForm(id){
+  editingId = id || null;
+  const d = cur();
+  const n = id ? d.numeracoes.find(x=>x.id===id) : {nome:''};
+  openModal(`
+    <div class="modal-head"><h3>${id?'Editar':'Nova'} numeração</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="saveNumeracao(event)">
+      <div class="modal-body"><div class="field"><label>Numeração</label><input required id="f_nome" value="${esc(n.nome)}" placeholder="Ex.: P, M, G, GG, 40, 42..."></div></div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
+    </form>`);
+}
+function saveNumeracao(e){
+  e.preventDefault();
+  const data = { nome: document.getElementById('f_nome').value.trim() };
+  const d = cur();
+  if(!d.numeracoes) d.numeracoes = [];
+  if(editingId){ Object.assign(d.numeracoes.find(n=>n.id===editingId), data); }
+  else { data.id = uid(); d.numeracoes.push(data); }
+  closeModal(); saveWS(); renderAll();
+  showToast('Numeração salva.', 'good');
+}
+function deleteNumeracao(id){
+  const d = cur();
+  if(d.estoque.some(x=>x.numeracaoId===id)){ showToast('Esta numeração está em uso por itens cadastrados. Altere-os antes de excluir.', 'bad'); return; }
+  if(!confirm('Excluir esta numeração?')) return;
+  d.numeracoes = d.numeracoes.filter(n=>n.id!==id);
+  saveWS(); renderAll();
+  showToast('Numeração excluída.', 'good');
+}
+function openEmpresaForm(id){
+  editingId = id || null;
+  const d = cur();
+  const emp = id ? d.empresas.find(x=>x.id===id) : {nome:''};
+  openModal(`
+    <div class="modal-head"><h3>${id?'Editar':'Nova'} empresa</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="saveEmpresa(event)">
+      <div class="modal-body"><div class="field"><label>Nome da empresa / marca</label><input required id="f_nome" value="${esc(emp.nome)}" placeholder="Ex.: Empresa X"></div></div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
+    </form>`);
+}
+function saveEmpresa(e){
+  e.preventDefault();
+  const data = { nome: document.getElementById('f_nome').value.trim() };
+  const d = cur();
+  if(!d.empresas) d.empresas = [];
+  if(editingId){ Object.assign(d.empresas.find(x=>x.id===editingId), data); }
+  else { data.id = uid(); d.empresas.push(data); }
+  closeModal(); saveWS(); renderAll();
+  showToast('Empresa salva.', 'good');
+}
+function deleteEmpresa(id){
+  const d = cur();
+  if(d.estoque.some(x=>x.empresaId===id)){ showToast('Esta empresa está em uso por itens cadastrados. Altere-os antes de excluir.', 'bad'); return; }
+  if(!confirm('Excluir esta empresa?')) return;
+  d.empresas = d.empresas.filter(x=>x.id!==id);
+  saveWS(); renderAll();
+  showToast('Empresa excluída.', 'good');
+}
+
+let tempReferencias = [];
+function openReferenciasModal(empresaId){
+  const d = cur();
+  const emp = d.empresas.find(x=>x.id===empresaId);
+  tempReferencias = JSON.parse(JSON.stringify(emp.referencias||[]));
+  openModal(`
+    <div class="modal-head"><h3>Referências · ${esc(emp.nome)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Cadastre quantas referências essa empresa usar. Ao escolher uma referência num pedido/venda, a descrição preenche sozinha.</p>
+      <div class="items-head" style="grid-template-columns:1fr 1fr 30px;"><div>Referência</div><div>Descrição</div><div></div></div>
+      <div id="referenciasBody"></div>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="addReferenciaRow()" style="margin-top:8px;">${iconPlus()} Adicionar referência</button>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-accent" onclick="saveReferencias('${empresaId}')">${iconCheck()} Salvar</button></div>
+  `);
+  renderReferenciasBody();
+}
+function renderReferenciasBody(){
+  const body = document.getElementById('referenciasBody');
+  if(!body) return;
+  body.innerHTML = tempReferencias.map((r,idx)=>`
+    <div style="display:grid;grid-template-columns:1fr 1fr 30px;gap:8px;align-items:center;margin-bottom:8px;">
+      <input value="${esc(r.codigo)}" placeholder="Ex.: REF-001" oninput="updateReferenciaField(${idx},'codigo',this.value)">
+      <input value="${esc(r.descricao)}" placeholder="Descrição" oninput="updateReferenciaField(${idx},'descricao',this.value)">
+      <button type="button" class="icon-btn" onclick="removeReferenciaRow(${idx})">${iconX()}</button>
+    </div>`).join('') || `<p class="hint">Nenhuma referência ainda — clique em "Adicionar referência".</p>`;
+}
+function addReferenciaRow(){ tempReferencias.push({id:uid(), codigo:'',descricao:''}); renderReferenciasBody(); }
+function updateReferenciaField(idx, field, value){ tempReferencias[idx][field] = value; }
+function removeReferenciaRow(idx){ tempReferencias.splice(idx,1); renderReferenciasBody(); }
+function saveReferencias(empresaId){
+  const d = cur();
+  const emp = d.empresas.find(x=>x.id===empresaId);
+  emp.referencias = tempReferencias.filter(r=>r.codigo.trim());
+  closeModal(); saveWS(); renderAll();
+  showToast('Referências salvas.', 'good');
+}
+
+function checkEstoqueParaItens(itensValidos){
+  const d = cur();
+  const problemas = [];
+  itensValidos.forEach(it=>{
+    const prod = d.estoque.find(p=>p.id===it.produtoId);
+    if(!prod){ problemas.push('Item não encontrado.'); return; }
+    if(prod.quantidade < it.quantidade){ problemas.push(`${tagFullLabel(prod)}: apenas ${fmtQty(prod.quantidade)} ${prod.unidade} disponíveis`); }
+  });
+  return problemas;
+}
+function baixarEstoqueItens(itens){
+  const d = cur();
+  itens.forEach(it=>{ const prod = d.estoque.find(p=>p.id===it.produtoId); if(prod) prod.quantidade -= it.quantidade; });
+}
+function restaurarEstoqueItens(itens){
+  const d = cur();
+  itens.forEach(it=>{ const prod = d.estoque.find(p=>p.id===it.produtoId); if(prod) prod.quantidade += it.quantidade; });
+}
+
+function renderPedidos(){
+  const d = cur();
+  if(!d.pedidos.length){
+    return `<div class="panel"><div class="empty"><div class="glyph">◧</div><h4>Nenhum pedido registrado</h4>
+      <p>Crie um pedido para um cliente antes de fechar a venda.</p>
+      <button class="btn btn-accent" onclick="openPedidoForm()">${iconPlus()} Novo pedido</button></div></div>`;
+  }
+  return `<div class="panel"><table>
+    <thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Itens</th><th>Total</th><th>Status</th><th></th></tr></thead>
+    <tbody>${[...d.pedidos].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(p=>`
+      <tr>
+        <td><span class="code-tag">${esc(p.numero)}</span></td><td>${esc(p.cliente)}</td><td>${fmtDate(p.data)}</td><td>${p.itens.length}</td>
+        <td class="mono">${fmtMoney(p.total)}</td><td>${statusBadge(p.status)}</td>
+        <td><div class="row-actions">
+          <button class="btn btn-ghost btn-sm" title="Imprimir" onclick="printPedido('${p.id}')">${iconPrint()} Imprimir</button>
+          ${p.status==='Pendente'?`<button class="btn btn-accent btn-sm" title="Transferir para venda" onclick="convertPedido('${p.id}')">${iconCheck()} Transformar em venda</button>`:''}
+          ${p.status==='Pendente'?`<button class="icon-btn" title="Cancelar pedido" onclick="cancelPedido('${p.id}')">${iconX()}</button>`:''}
+          <button class="icon-btn" title="Excluir" onclick="deletePedido('${p.id}')">${iconTrash()}</button>
+        </div></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+}
+function deletePedido(id){
+  if(!confirm('Excluir este pedido?')) return;
+  const d = cur(); d.pedidos = d.pedidos.filter(x=>x.id!==id);
+  saveWS(); renderAll(); showToast('Pedido excluído.', 'good');
+}
+function itemFormRow(idx, item, vendaveis){
+  const selProd = vendaveis.find(p=>p.id===item.produtoId);
+  const qtdPlaceholder = selProd ? `Qtd (${selProd.unidade})` : 'Qtd';
+  return `<div class="item-row" id="item_${idx}">
+    <select onchange="updateItem(${idx},'produtoId',this.value)">
+      <option value="">Selecione um item</option>
+      ${vendaveis.map(p=>`<option value="${p.id}" ${item.produtoId===p.id?'selected':''}>${esc(tagIdentificacaoCompleta(p)||p.nome)} — ${fmtQty(p.quantidade)} ${esc(p.unidade)} em estoque</option>`).join('')}
+    </select>
+    <input type="number" min="0.001" step="0.001" placeholder="${qtdPlaceholder}" value="${item.quantidade||''}" onchange="updateItem(${idx},'quantidade',this.value)">
+    <input type="number" min="0" step="0.001" placeholder="Preço" value="${item.precoUnit||''}" onchange="updateItem(${idx},'precoUnit',this.value)">
+    <div class="item-total">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</div>
+    <button type="button" class="icon-btn" onclick="removeItem(${idx})">${iconX()}</button>
+  </div>`;
+}
+function buildMaterialGroups(vendaveis){
+  const groups = {};
+  vendaveis.forEach(p=>{
+    const key = (p.empresaId||'-')+'|'+(p.tamanhoId||'-')+'|'+(p.categoriaTag||'-');
+    if(!groups[key]) groups[key] = { key, empresaId:p.empresaId, tamanhoId:p.tamanhoId, categoriaTag:p.categoriaTag, itens: [] };
+    groups[key].itens.push(p);
+  });
+  return Object.values(groups);
+}
+function materialGroupLabel(g){
+  const emp = empresaObj(g.empresaId); const tam = tamanhoObj(g.tamanhoId);
+  const partes = [];
+  if(emp) partes.push(emp.nome);
+  partes.push(g.categoriaTag==='Composição' ? 'Etiqueta de Composição' : 'TAG');
+  if(tam) partes.push(tam.nome);
+  return partes.join(' · ') || 'Material';
+}
+function referenciaRowHtml(idx, item){
+  const list = allReferenciasList();
+  if(!list.length) return '';
+  return `<div class="field-row" style="margin-bottom:6px;">
+    <select onchange="updateItemReferencia(${idx}, this.value)">
+      <option value="">Referência (opcional)</option>
+      ${list.map(r=>`<option value="${r.id}" ${item.referenciaId===r.id?'selected':''}>${esc(r.empresaNome)} · ${esc(r.codigo)}</option>`).join('')}
+    </select>
+    <input type="text" readonly value="${esc(item.descricaoRef||'')}" placeholder="Descrição (automática)">
+  </div>`;
+}
+function allReferenciasList(){
+  const d = cur(); const list = [];
+  (d.empresas||[]).forEach(emp=>{ (emp.referencias||[]).forEach(r=>{ list.push({id:r.id, empresaNome:emp.nome, codigo:r.codigo, descricao:r.descricao}); }); });
+  return list;
+}
+function updateItemReferencia(idx, refId){
+  const ref = allReferenciasList().find(r=>r.id===refId);
+  formItens[idx].referenciaId = refId;
+  formItens[idx].referenciaCodigo = ref ? ref.codigo : '';
+  formItens[idx].descricaoRef = ref ? ref.descricao : '';
+  renderItensBody();
+}
+function itemFormRowEtq(idx, item, vendaveis){
+  const groups = buildMaterialGroups(vendaveis);
+  const selGroup = groups.find(g=>g.key===item.materialKey);
+  const variantes = selGroup ? selGroup.itens : [];
+  return `<div id="item_${idx}">
+  ${referenciaRowHtml(idx, item)}
+  <div class="item-row-etq">
+    <select onchange="updateItemMaterial(${idx}, this.value)">
+      <option value="">Selecione o material</option>
+      ${groups.map(g=>`<option value="${g.key}" ${item.materialKey===g.key?'selected':''}>${esc(materialGroupLabel(g))}</option>`).join('')}
+    </select>
+    <select onchange="updateItem(${idx},'produtoId',this.value)" ${!selGroup?'disabled':''}>
+      <option value="">Tamanho</option>
+      ${variantes.map(p=>{ const num=numeracaoObj(p.numeracaoId); return `<option value="${p.id}" ${item.produtoId===p.id?'selected':''}>${num?esc(num.nome):'Único'} (${fmtQty(p.quantidade)} un.)</option>`; }).join('')}
+    </select>
+    <input type="number" min="0.001" step="0.001" placeholder="Qtd" value="${item.quantidade||''}" onchange="updateItem(${idx},'quantidade',this.value)">
+    <input type="number" min="0" step="0.001" placeholder="Preço" value="${item.precoUnit||''}" onchange="updateItem(${idx},'precoUnit',this.value)">
+    <div class="item-total">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</div>
+    <button type="button" class="icon-btn" onclick="removeItem(${idx})">${iconX()}</button>
+  </div></div>`;
+}
+function itemFormRowPedidoEtq(idx, item){
+  const d = cur();
+  return `<div id="item_${idx}">
+  ${referenciaRowHtml(idx, item)}
+  <div class="item-row-etq">
+    <select onchange="updatePedidoTamanho(${idx}, this.value)">
+      <option value="">Selecione o produto</option>
+      ${d.tamanhos.map(t=>`<option value="${t.id}" ${item.tamanhoId===t.id?'selected':''}>${esc(t.nome)}${t.dimensao?' ('+esc(t.dimensao)+')':''}</option>`).join('')}
+    </select>
+    <select onchange="updateItem(${idx},'numeracaoId',this.value)">
+      <option value="">Tamanho</option>
+      ${(d.numeracoes||[]).map(n=>`<option value="${n.id}" ${item.numeracaoId===n.id?'selected':''}>${esc(n.nome)}</option>`).join('')}
+    </select>
+    <input type="number" min="0.001" step="0.001" placeholder="Qtd" value="${item.quantidade||''}" onchange="updateItem(${idx},'quantidade',this.value)">
+    <input type="number" min="0" step="0.001" placeholder="Preço" value="${item.precoUnit||''}" onchange="updateItem(${idx},'precoUnit',this.value)">
+    <div class="item-total">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</div>
+    <button type="button" class="icon-btn" onclick="removeItem(${idx})">${iconX()}</button>
+  </div></div>`;
+}
+function updatePedidoTamanho(idx, tamanhoId){
+  const tam = tamanhoObj(tamanhoId);
+  formItens[idx].tamanhoId = tamanhoId;
+  formItens[idx].precoUnit = tam ? (tam.precoMilheiro||0)/1000 : 0;
+  renderItensBody();
+}
+function updateItemMaterial(idx, key){
+  formItens[idx].materialKey = key;
+  formItens[idx].produtoId = '';
+  formItens[idx].precoUnit = 0;
+  renderItensBody();
+}
+function itemsHeadHtml(){
+  if(ws==='etiquetag') return `<div class="items-head-etq"><div>${formContext==='pedido'?'Produto':'Material'}</div><div>Tamanho</div><div>Qtd</div><div>Preço</div><div>Subtotal</div><div></div></div>`;
+  return `<div class="items-head"><div>Produto</div><div>Qtd</div><div>Preço</div><div>Subtotal</div><div></div></div>`;
+}
+function updateItem(idx, field, value){
+  const d = cur();
+  if(field==='produtoId'){
+    const prod = d.estoque.find(p=>p.id===value);
+    formItens[idx].produtoId = value;
+    formItens[idx].precoUnit = prod ? (isTagProntoEtq(prod) ? prod.preco/1000 : prod.preco) : 0;
+  } else if(field==='numeracaoId'){ formItens[idx].numeracaoId = value; }
+  else if(field==='quantidade'){ formItens[idx].quantidade = parseFloat(value)||0; }
+  else if(field==='precoUnit'){ formItens[idx].precoUnit = parseFloat(value)||0; }
+  renderItensBody();
+}
+function addItem(){
+  if(ws==='etiquetag' && formContext==='pedido'){ formItens.push({tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:''}); }
+  else { formItens.push({produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:''}); }
+  renderItensBody();
+}
+function removeItem(idx){ formItens.splice(idx,1); renderItensBody(); }
+function renderItensBody(){
+  const body = document.getElementById('itensBody');
+  if(!body) return;
+  const vendaveis = cur().estoque.filter(x=>x.vendavel);
+  const isEtq = ws==='etiquetag';
+  body.innerHTML = formItens.map((it,idx)=>{
+    if(isEtq && formContext==='pedido') return itemFormRowPedidoEtq(idx,it);
+    return isEtq ? itemFormRowEtq(idx,it,vendaveis) : itemFormRow(idx,it,vendaveis);
+  }).join('');
+  const subtotal = formItens.reduce((s,it)=>s+(it.quantidade||0)*(it.precoUnit||0),0);
+  const descEl = document.getElementById('f_desconto');
+  const desconto = descEl ? (parseFloat(descEl.value)||0) : 0;
+  document.getElementById('formTotal').textContent = fmtMoney(Math.max(0,subtotal-desconto));
+}
+function openPedidoForm(){
+  editingId = null;
+  formContext = 'pedido';
+  formItens = ws==='etiquetag' ? [{tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:''}] : [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:''}];
+  const empresasCatalog = cur().empresas||[];
+  openModal(`
+    <div class="modal-head"><h3>Novo pedido</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="savePedido(event)">
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>Cliente</label><input required id="f_cliente" list="clientesList" placeholder="Nome do cliente">
+            <datalist id="clientesList">${empresasCatalog.map(e=>`<option value="${esc(e.nome)}">`).join('')}</datalist></div>
+          <div class="field"><label>Data</label><input required type="date" id="f_data" value="${new Date().toISOString().slice(0,10)}"></div>
+        </div>
+        <div class="field"><label>Itens do pedido</label>
+          ${itemsHeadHtml()}
+          <div id="itensBody"></div>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addItem()" style="margin-top:4px;">${iconPlus()} Adicionar item</button>
+        </div>
+        <div class="field"><label>Observações</label><textarea id="f_obs" rows="2" placeholder="Opcional"></textarea></div>
+        <div class="total-line"><span>Total</span><span id="formTotal">${fmtMoney(0)}</span></div>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar pedido</button></div>
+    </form>`);
+  renderItensBody();
+}
+function savePedido(e){
+  e.preventDefault();
+  const d = cur();
+  const isEtq = ws==='etiquetag';
+  const clienteNome = document.getElementById('f_cliente').value.trim();
+  let itens;
+  if(isEtq){
+    const itensValidos = formItens.filter(it=>it.tamanhoId && it.quantidade>0);
+    if(!itensValidos.length){ showToast('Adicione ao menos um item válido.', 'bad'); return; }
+    const empresaMatch = (d.empresas||[]).find(emp=>emp.nome.toLowerCase()===clienteNome.toLowerCase());
+    itens = itensValidos.map(it=>{
+      const tam = tamanhoObj(it.tamanhoId);
+      const num = numeracaoObj(it.numeracaoId);
+      let nome = tam ? tam.nome : 'Produto';
+      if(num) nome += ' - '+num.nome;
+      if(empresaMatch) nome += ' ('+empresaMatch.nome+')';
+      if(it.descricaoRef) nome += ' — '+it.descricaoRef;
+      const produtoExistente = d.estoque.find(p=>p.tipo==='Tag' && p.tamanhoId===it.tamanhoId && p.numeracaoId===(it.numeracaoId||'') && p.empresaId===(empresaMatch?empresaMatch.id:''));
+      return { produtoId: produtoExistente?produtoExistente.id:'', tamanhoId: it.tamanhoId, numeracaoId: it.numeracaoId, empresaId: empresaMatch?empresaMatch.id:'',
+        referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'',
+        nome, unidade:'un', quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit };
+    });
+  } else {
+    const itensValidos = formItens.filter(it=>it.produtoId && it.quantidade>0);
+    if(!itensValidos.length){ showToast('Adicione ao menos um item válido.', 'bad'); return; }
+    itens = itensValidos.map(it=>{
+      const prod = d.estoque.find(p=>p.id===it.produtoId);
+      let nome = tagFullLabel(prod);
+      if(it.descricaoRef) nome += ' — '+it.descricaoRef;
+      return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit };
+    });
+  }
+  const total = itens.reduce((s,i)=>s+i.subtotal,0);
+  const pedido = { id: uid(), numero: nextCode('PD','pd'), cliente: clienteNome,
+    data: document.getElementById('f_data').value, observacoes: document.getElementById('f_obs').value.trim(), itens, total, status:'Pendente' };
+  d.pedidos.push(pedido);
+  closeModal(); saveWS(); renderAll();
+  showToast('Pedido criado com sucesso.', 'good');
+}
+function cancelPedido(id){
+  if(!confirm('Cancelar este pedido?')) return;
+  const p = cur().pedidos.find(x=>x.id===id);
+  p.status = 'Cancelado';
+  saveWS(); renderAll();
+  showToast('Pedido cancelado.', 'good');
+}
+function convertPedido(id){
+  const d = cur();
+  const p = d.pedidos.find(x=>x.id===id);
+  const naoProduzidos = [];
+  p.itens.forEach(it=>{
+    if(!it.produtoId && it.tamanhoId){
+      const found = d.estoque.find(x=>x.tipo==='Tag' && x.tamanhoId===it.tamanhoId && x.numeracaoId===(it.numeracaoId||'') && x.empresaId===(it.empresaId||''));
+      if(found) it.produtoId = found.id;
+    }
+    if(!it.produtoId) naoProduzidos.push(it.nome);
+  });
+  if(naoProduzidos.length){ showToast('Ainda não produzido: '+naoProduzidos.join(', ')+'. Produza este item antes de transformar em venda.', 'bad'); return; }
+  const problemas = checkEstoqueParaItens(p.itens);
+  if(problemas.length){ showToast(problemas.join(' · '), 'bad'); return; }
+  baixarEstoqueItens(p.itens);
+  const empresaMatch = (d.empresas||[]).find(emp=>emp.nome.toLowerCase()===p.cliente.toLowerCase());
+  const venda = { id: uid(), numero: nextCode('VD','vd'), pedidoId: p.id, cliente: p.cliente, empresaId: empresaMatch?empresaMatch.id:'', data: todayISO().slice(0,10),
+    itens: p.itens, formaPagamento: 'Não informado', desconto: 0, total: p.total, status: 'Concluída', statusPagamento: 'Pendente' };
+  d.vendas.push(venda);
+  p.status = 'Concluído';
+  saveWS(); renderAll();
+  showToast('Pedido transferido para vendas.', 'good');
+}
+
+let financeiroEmpresaSelecionada = '';
+function renderFinanceiro(){
+  const d = cur();
+  const vendasValidas = d.vendas.filter(v=>v.status!=='Cancelada');
+  if(!vendasValidas.length){
+    return `<div class="panel"><div class="empty"><div class="glyph">◧</div><h4>Nenhuma venda registrada ainda</h4>
+      <p>Assim que houver vendas, elas aparecem aqui organizadas por empresa.</p></div></div>`;
+  }
+  const grupos = {};
+  vendasValidas.forEach(v=>{
+    const key = v.empresaId || '__semempresa__';
+    if(!grupos[key]) grupos[key] = { empresaId: v.empresaId||'', nome: v.empresaId ? (empresaObj(v.empresaId)?empresaObj(v.empresaId).nome:v.cliente) : (v.cliente||'Cliente avulso'), vendas: [] };
+    grupos[key].vendas.push(v);
+  });
+  const listaGrupos = Object.values(grupos).sort((a,b)=>{
+    const totalA = a.vendas.reduce((s,v)=>s+v.total,0), totalB = b.vendas.reduce((s,v)=>s+v.total,0);
+    return totalB-totalA;
+  });
+  const totalGeral = vendasValidas.reduce((s,v)=>s+v.total,0);
+  const totalPago = vendasValidas.filter(v=>v.statusPagamento!=='Pendente').reduce((s,v)=>s+v.total,0);
+  const totalPendente = totalGeral-totalPago;
+
+  let html = `<div class="kpi-grid">
+    <div class="kpi"><div class="kpi-bar"></div><div class="label">Total vendido</div><div class="value">${fmtMoney(totalGeral)}</div><div class="note">${vendasValidas.length} venda(s)</div></div>
+    <div class="kpi good"><div class="kpi-bar"></div><div class="label">Recebido</div><div class="value">${fmtMoney(totalPago)}</div><div class="note">Marcado como pago</div></div>
+    <div class="kpi alert"><div class="kpi-bar"></div><div class="label">Pendente</div><div class="value">${fmtMoney(totalPendente)}</div><div class="note">Ainda não recebido</div></div>
+  </div>`;
+
+  html += `<div class="panel"><div class="panel-head"><h3>Vendas por empresa</h3></div>
+    <table><thead><tr><th>Empresa / Cliente</th><th>Vendas</th><th>Total</th><th>Pago</th><th>Pendente</th><th></th></tr></thead>
+    <tbody>${listaGrupos.map(g=>{
+      const total = g.vendas.reduce((s,v)=>s+v.total,0);
+      const pago = g.vendas.filter(v=>v.statusPagamento!=='Pendente').reduce((s,v)=>s+v.total,0);
+      const pendente = total-pago;
+      const key = g.empresaId||'__semempresa__';
+      return `<tr>
+        <td>${esc(g.nome)}</td>
+        <td class="mono">${g.vendas.length}</td>
+        <td class="mono">${fmtMoney(total)}</td>
+        <td class="mono">${fmtMoney(pago)}</td>
+        <td class="mono">${pendente>0?badgeHtml('warn', fmtMoney(pendente)):fmtMoney(0)}</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="verHistoricoEmpresa('${key}')">Ver histórico</button></td>
+      </tr>`;
+    }).join('')}</tbody></table>
+  </div>`;
+
+  if(financeiroEmpresaSelecionada){
+    const g = grupos[financeiroEmpresaSelecionada];
+    if(g){
+      html += `<div class="panel"><div class="panel-head"><div><h3>Histórico · ${esc(g.nome)}</h3><p>Vendas independentes desta empresa, mais recentes primeiro.</p></div>
+        <button class="btn btn-ghost btn-sm" onclick="verHistoricoEmpresa('')">${iconX()} Fechar</button></div>
+        <table><thead><tr><th>Nº</th><th>Data</th><th>Itens</th><th>Total</th><th>Pagamento</th><th></th></tr></thead>
+        <tbody>${[...g.vendas].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(v=>`
+          <tr><td><span class="code-tag">${esc(v.numero)}</span></td><td>${fmtDate(v.data)}</td><td>${v.itens.length}</td><td class="mono">${fmtMoney(v.total)}</td>
+          <td>${v.statusPagamento==='Pendente'?badgeHtml('warn','Pendente'):badgeHtml('good','Pago')}</td>
+          <td><div class="row-actions">
+            <button class="btn btn-ghost btn-sm" onclick="togglePagamento('${v.id}')">${v.statusPagamento==='Pendente'?'Marcar pago':'Marcar pendente'}</button>
+            <button class="icon-btn" title="Imprimir" onclick="printVenda('${v.id}')">${iconPrint()}</button>
+          </div></td></tr>`).join('')}</tbody></table>
+      </div>`;
+    }
+  }
+  return html;
+}
+function verHistoricoEmpresa(key){ financeiroEmpresaSelecionada = key; renderAll(); }
+function togglePagamento(vendaId){
+  const d = cur();
+  const v = d.vendas.find(x=>x.id===vendaId);
+  if(!v) return;
+  v.statusPagamento = v.statusPagamento==='Pendente' ? 'Pago' : 'Pendente';
+  saveWS(); renderAll();
+  showToast('Status de pagamento atualizado.', 'good');
+}
+function renderVendas(){
+  const d = cur();
+  if(!d.vendas.length){
+    return `<div class="panel"><div class="empty"><div class="glyph">◧</div><h4>Nenhuma venda registrada</h4>
+      <p>Registre uma venda avulsa ou transfira um pedido pronto para vendas.</p>
+      <button class="btn btn-accent" onclick="openVendaForm()">${iconPlus()} Nova venda</button></div></div>`;
+  }
+  return `<div class="panel"><table>
+    <thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Itens</th><th>Total</th><th>Status</th><th>Pagamento</th><th></th></tr></thead>
+    <tbody>${[...d.vendas].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(v=>`
+      <tr>
+        <td><span class="code-tag">${esc(v.numero)}</span></td><td>${esc(v.cliente)}</td><td>${fmtDate(v.data)}</td><td>${v.itens.length}</td>
+        <td class="mono">${fmtMoney(v.total)}</td><td>${statusBadge(v.status)}</td>
+        <td>${v.status==='Concluída'?`<button class="btn btn-sm ${v.statusPagamento==='Pendente'?'btn-ghost':'btn-accent'}" onclick="togglePagamento('${v.id}')">${v.statusPagamento==='Pendente'?badgeHtml('warn','Pendente'):badgeHtml('good','Pago')}</button>`:'—'}</td>
+        <td><div class="row-actions">
+          <button class="btn btn-ghost btn-sm" title="Imprimir comprovante" onclick="printVenda('${v.id}')">${iconPrint()} Imprimir</button>
+          ${v.status==='Concluída'?`<button class="icon-btn" title="Cancelar venda" onclick="cancelVenda('${v.id}')">${iconX()}</button>`:''}
+          <button class="icon-btn" title="Excluir" onclick="deleteVenda('${v.id}')">${iconTrash()}</button>
+        </div></td>
+      </tr>`).join('')}
+    </tbody></table></div>`;
+}
+function deleteVenda(id){
+  if(!confirm('Excluir esta venda?')) return;
+  const d = cur(); d.vendas = d.vendas.filter(x=>x.id!==id);
+  saveWS(); renderAll(); showToast('Venda excluída.', 'good');
+}
+function openVendaForm(){
+  editingId = null;
+  formContext = 'venda';
+  formItens = [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:''}];
+  const empresasCatalog = cur().empresas||[];
+  openModal(`
+    <div class="modal-head"><h3>Nova venda</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="saveVenda(event)">
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>Cliente</label><input required id="f_cliente" list="clientesList" placeholder="Nome do cliente">
+            <datalist id="clientesList">${empresasCatalog.map(e=>`<option value="${esc(e.nome)}">`).join('')}</datalist></div>
+          <div class="field"><label>Data</label><input required type="date" id="f_data" value="${new Date().toISOString().slice(0,10)}"></div>
+        </div>
+        <div class="field"><label>Itens da venda</label>
+          ${itemsHeadHtml()}
+          <div id="itensBody"></div>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addItem()" style="margin-top:4px;">${iconPlus()} Adicionar item</button>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Forma de pagamento</label>
+            <select id="f_pagamento"><option>Dinheiro</option><option>Pix</option><option>Cartão de débito</option><option>Cartão de crédito</option><option>Boleto</option></select></div>
+          <div class="field"><label>Desconto (R$)</label><input type="number" min="0" step="0.01" id="f_desconto" value="0" oninput="renderItensBody()"></div>
+        </div>
+        <div class="field"><label>Status de pagamento</label>
+          <div class="radio-row"><label><input type="radio" name="f_statuspagamentoradio" value="Pago" checked onchange="document.getElementById('f_statuspagamento').value='Pago'"> Pago</label>
+          <label><input type="radio" name="f_statuspagamentoradio" value="Pendente" onchange="document.getElementById('f_statuspagamento').value='Pendente'"> Pendente</label></div>
+          <input type="hidden" id="f_statuspagamento" value="Pago"></div>
+        <div class="total-line"><span>Total</span><span id="formTotal">${fmtMoney(0)}</span></div>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Registrar venda</button></div>
+    </form>`);
+  renderItensBody();
+}
+function saveVenda(e){
+  e.preventDefault();
+  const itensValidos = formItens.filter(it=>it.produtoId && it.quantidade>0);
+  if(!itensValidos.length){ showToast('Adicione ao menos um item válido.', 'bad'); return; }
+  const problemas = checkEstoqueParaItens(itensValidos);
+  if(problemas.length){ showToast(problemas.join(' · '), 'bad'); return; }
+  const d = cur();
+  const itens = itensValidos.map(it=>{
+    const prod = d.estoque.find(p=>p.id===it.produtoId);
+    let nome = tagFullLabel(prod);
+    if(it.descricaoRef) nome += ' — '+it.descricaoRef;
+    return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit };
+  });
+  const subtotal = itens.reduce((s,i)=>s+i.subtotal,0);
+  const desconto = parseFloat(document.getElementById('f_desconto').value)||0;
+  const clienteNome = document.getElementById('f_cliente').value.trim();
+  const empresaMatch = (d.empresas||[]).find(emp=>emp.nome.toLowerCase()===clienteNome.toLowerCase());
+  const statusPagEl = document.getElementById('f_statuspagamento');
+  const venda = { id: uid(), numero: nextCode('VD','vd'), pedidoId: null, cliente: clienteNome, empresaId: empresaMatch?empresaMatch.id:'',
+    data: document.getElementById('f_data').value, formaPagamento: document.getElementById('f_pagamento').value,
+    desconto, itens, total: Math.max(0,subtotal-desconto), status:'Concluída', statusPagamento: statusPagEl?statusPagEl.value:'Pago' };
+  baixarEstoqueItens(itensValidos);
+  d.vendas.push(venda);
+  closeModal(); saveWS(); renderAll();
+  showToast('Venda registrada com sucesso.', 'good');
+}
+function cancelVenda(id){
+  if(!confirm('Cancelar esta venda? O estoque dos itens será restaurado.')) return;
+  const d = cur();
+  const v = d.vendas.find(x=>x.id===id);
+  restaurarEstoqueItens(v.itens);
+  v.status = 'Cancelada';
+  saveWS(); renderAll();
+  showToast('Venda cancelada e estoque restaurado.', 'good');
+}
+
+function renderImpressaoConfig(){
+  const cfg = cur().configImpressao || {formato:'a4', assinatura:true, documento:true, metodoBluetooth:'nenhum'};
+  return `<div class="panel">
+    <div class="panel-head"><div><h3>Formato do papel</h3><p>Usado para imprimir comprovantes de estoque, pedido e venda.</p></div></div>
+    <div style="padding:18px;">
+      <div class="field">
+        <div class="radio-row" style="flex-direction:column;gap:12px;align-items:flex-start;">
+          <label><input type="radio" name="f_formato" value="a4" ${cfg.formato==='a4'?'checked':''}> Folha A4 (impressora comum)</label>
+          <label><input type="radio" name="f_formato" value="termica80" ${cfg.formato==='termica80'?'checked':''}> Bobina térmica 80mm</label>
+          <label><input type="radio" name="f_formato" value="termica58" ${cfg.formato==='termica58'?'checked':''}> Bobina térmica 58mm</label>
+        </div>
+      </div>
+      <div class="field" style="margin-top:18px;">
+        <label>O que aparece no comprovante</label>
+        <div class="radio-row" style="flex-direction:column;gap:10px;align-items:flex-start;">
+          <label><input type="checkbox" id="f_assinatura" ${cfg.assinatura!==false?'checked':''}> Linha de assinatura</label>
+          <label><input type="checkbox" id="f_documento" ${cfg.documento!==false?'checked':''}> CNPJ/documento e endereço da empresa</label>
+        </div>
+      </div>
+      <button class="btn btn-accent" style="margin-top:20px;" onclick="saveImpressaoConfig()">${iconCheck()} Salvar configuração</button>
+      <button class="btn btn-ghost" style="margin-top:20px;margin-left:8px;" onclick="printTeste()">${iconPrint()} Imprimir teste</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div><h3>Impressora Bluetooth</h3><p>Para impressoras térmicas portáteis conectadas por Bluetooth.</p></div></div>
+    <div style="padding:18px;">
+      <p class="hint" style="margin-top:0;">O navegador não consegue parear diretamente com a maioria das impressoras térmicas Bluetooth — elas usam um protocolo que a Web Bluetooth não suporta. É preciso um app "ponte" no celular que já tenha a impressora conectada. Escolha como este aplicativo deve enviar os comprovantes:</p>
+      <div class="field">
+        <div class="radio-row" style="flex-direction:column;gap:12px;align-items:flex-start;">
+          <label><input type="radio" name="f_metodobt" value="nenhum" ${(!cfg.metodoBluetooth||cfg.metodoBluetooth==='nenhum')?'checked':''}> Tela de impressão do Android (escolho o app toda vez)</label>
+          <label><input type="radio" name="f_metodobt" value="compartilhar" ${cfg.metodoBluetooth==='compartilhar'?'checked':''}> Compartilhar com o app de impressão (recomendado para "Bluetooth Print" e afins)</label>
+          <label><input type="radio" name="f_metodobt" value="rawbt" ${cfg.metodoBluetooth==='rawbt'?'checked':''}> Enviar direto para o RawBT</label>
+        </div>
+      </div>
+      <p class="hint"><strong>Tela de impressão do Android:</strong> ao tocar em "Imprimir", abre o diálogo padrão do Android — se o app da sua impressora aparece nas configurações de impressão do sistema, selecione-o ali.</p>
+      <p class="hint"><strong>Compartilhar:</strong> abre a tela de compartilhamento nativa do Android — escolha ali o app "Bluetooth Print" (ou o que você já testou com a impressora) na lista. Como você já tem esse app configurado com a impressora, essa costuma ser a opção mais confiável.</p>
+      <p class="hint"><strong>RawBT:</strong> envia direto, sem tela intermediária — só funciona se o app instalado for especificamente o RawBT.</p>
+      <button class="btn btn-accent" onclick="saveImpressaoConfig()">${iconCheck()} Salvar configuração</button>
+      <button class="btn btn-ghost" style="margin-left:8px;" onclick="printTeste()">${iconPrint()} Imprimir teste</button>
+    </div>
+  </div>`;
+}
+function saveImpressaoConfig(){
+  cur().configImpressao = {
+    formato: document.querySelector('input[name="f_formato"]:checked').value,
+    assinatura: document.getElementById('f_assinatura').checked,
+    documento: document.getElementById('f_documento').checked,
+    metodoBluetooth: document.querySelector('input[name="f_metodobt"]:checked').value,
+  };
+  saveWS();
+  showToast('Configuração de impressão salva.', 'good');
+}
+function sendToRawBT(text){
+  const url = 'intent:'+encodeURI(text)+'#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;';
+  window.location.href = url;
+}
+async function shareToPrintApp(text){
+  if(navigator.share){
+    try{ await navigator.share({ text }); return true; }
+    catch(e){ if(e && e.name==='AbortError') return true; }
+  }
+  try{ await navigator.clipboard.writeText(text); showToast('Este navegador não suporta compartilhamento direto — o texto do comprovante foi copiado, cole no app de impressão.', 'bad'); }
+  catch(e){ showToast('Não foi possível compartilhar nem copiar automaticamente neste navegador.', 'bad'); }
+  return false;
+}
+function buildReceiptText(titulo, numero, metaLines, itens, totalLines, obsText){
+  const em = cur().empresa; const cfg = cur().configImpressao || {};
+  let t = em.nome+'\n';
+  if(cfg.documento!==false && (em.documento||em.endereco)) t += [em.documento,em.endereco].filter(Boolean).join(' ')+'\n';
+  t += '--------------------------------\n'+titulo.toUpperCase()+' '+numero+'\n--------------------------------\n';
+  metaLines.forEach(l=>{ t += l+'\n'; });
+  t += '--------------------------------\n';
+  itens.forEach(i=>{
+    t += i.nome+'\n';
+    t += '  '+fmtQty(i.quantidade)+' '+(i.unidade||'')+' x '+fmtMoney(i.precoUnit)+' = '+fmtMoney(i.subtotal)+'\n';
+  });
+  t += '--------------------------------\n';
+  totalLines.forEach(l=>{ t += l+'\n'; });
+  if(obsText) t += '\nObs: '+obsText+'\n';
+  if(cfg.assinatura!==false) t += '\n\n_____________________\nAssinatura\n';
+  t += '\nEmitido em '+fmtDateTime(todayISO())+'\n\n\n';
+  return t;
+}
+function printTeste(){
+  saveImpressaoConfig();
+  const html = `<div class="doc">${docHeadHtml('Comprovante de teste', 'TESTE-0001')}
+    <div class="doc-meta"><span>Cliente: <strong>Cliente de teste</strong></span><span>Data: ${fmtDate(todayISO())}</span></div>
+    ${itensTableHtml([{nome:'Item de exemplo', unidade:'un', quantidade:2, precoUnit:10, subtotal:20}])}
+    <div class="doc-total"><div class="grand">Total: ${fmtMoney(20)}</div></div>
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${cur().configImpressao.assinatura?'<div class="sign-line">Assinatura</div>':'<div></div>'}</div></div>`;
+  const text = buildReceiptText('Comprovante de teste','TESTE-0001', ['Cliente: Cliente de teste','Data: '+fmtDate(todayISO())],
+    [{nome:'Item de exemplo', unidade:'un', quantidade:2, precoUnit:10, subtotal:20}], ['Total: '+fmtMoney(20)]);
+  printDocument(html, text);
+}
+function openConfigModal(){
+  const em = cur().empresa;
+  openModal(`
+    <div class="modal-head"><h3>Dados da empresa · ${WS_META[ws].label}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="saveConfig(event)">
+      <div class="modal-body">
+        <div class="field"><label>Nome da empresa</label><input required id="f_empnome" value="${esc(em.nome)}"></div>
+        <div class="field"><label>CNPJ / Documento</label><input id="f_empdoc" value="${esc(em.documento)}"></div>
+        <div class="field"><label>Endereço</label><input id="f_empend" value="${esc(em.endereco)}"></div>
+        <p class="hint">Essas informações aparecem no cabeçalho dos comprovantes de ${WS_META[ws].label}. Cada segmento tem seus próprios dados.</p>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
+    </form>`);
+}
+function saveConfig(e){
+  e.preventDefault();
+  cur().empresa = { nome: document.getElementById('f_empnome').value.trim()||'Minha Empresa',
+    documento: document.getElementById('f_empdoc').value.trim(), endereco: document.getElementById('f_empend').value.trim() };
+  closeModal(); saveWS(); renderAll();
+  showToast('Dados da empresa atualizados.', 'good');
+}
+
+function openModal(html){ document.getElementById('modalBox').innerHTML = html; document.getElementById('modalOverlay').classList.remove('hidden'); }
+function closeModal(){ document.getElementById('modalOverlay').classList.add('hidden'); document.getElementById('modalBox').innerHTML = ''; }
+document.getElementById('modalOverlay').addEventListener('click', e=>{ if(e.target.id==='modalOverlay') closeModal(); });
+
+function docHeadHtml(tipo, numero){
+  const em = cur().empresa;
+  const cfg = cur().configImpressao || {};
+  const metaLine = cfg.documento!==false ? `<div class="company-meta">${esc(em.documento)}${em.documento&&em.endereco?' · ':''}${esc(em.endereco)}</div>` : '';
+  return `<div class="doc-head"><div><div class="company">${esc(em.nome)}</div>${metaLine}</div>
+    <div class="doc-title"><div class="type">${tipo}</div><div class="num">${esc(numero)}</div></div></div>`;
+}
+function itensTableHtml(itens){
+  const temRef = itens.some(i=>i.referencia||i.descricaoRef);
+  const table = `<table><thead><tr><th>Item</th>${temRef?'<th>Referência</th><th>Descrição</th>':''}<th>Qtd</th><th>Preço unit.</th><th>Subtotal</th></tr></thead>
+  <tbody>${itens.map(i=>`<tr><td>${esc(i.nome)}</td>${temRef?`<td>${esc(i.referencia||'—')}</td><td>${esc(i.descricaoRef||'—')}</td>`:''}<td>${fmtQty(i.quantidade)} ${esc(i.unidade||'')}</td><td>${fmtMoney(i.precoUnit)}</td><td>${fmtMoney(i.subtotal)}</td></tr>`).join('')}</tbody></table>`;
+  const lines = `<div class="doc-lines">${itens.map(i=>`
+    <div class="line"><span>${esc(i.nome)}</span><span></span></div>
+    ${(i.referencia||i.descricaoRef)?`<div class="line"><span>Ref: ${esc(i.referencia||'—')} — ${esc(i.descricaoRef||'')}</span><span></span></div>`:''}
+    <div class="line"><span>${fmtQty(i.quantidade)} ${esc(i.unidade||'')} x ${fmtMoney(i.precoUnit)}</span><span>${fmtMoney(i.subtotal)}</span></div>`).join('')}</div>`;
+  return table+lines;
+}
+function signLineHtml(){
+  const cfg = cur().configImpressao || {};
+  return cfg.assinatura!==false ? '<div class="sign-line">Assinatura</div>' : '<div></div>';
+}
+function printVenda(id){
+  const v = cur().vendas.find(x=>x.id===id);
+  const subtotal = v.itens.reduce((s,i)=>s+i.subtotal,0);
+  const html = `<div class="doc">${docHeadHtml('Comprovante de venda', v.numero)}
+    <div class="doc-meta"><span>Cliente: <strong>${esc(v.cliente)}</strong></span><span>Data: ${fmtDate(v.data)}</span><span>Pagamento: ${esc(v.formaPagamento)}</span></div>
+    ${itensTableHtml(v.itens)}
+    <div class="doc-total">${v.desconto?`<div>Subtotal: ${fmtMoney(subtotal)}</div><div>Desconto: -${fmtMoney(v.desconto)}</div>`:''}<div class="grand">Total: ${fmtMoney(v.total)}</div></div>
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+  const totalLines = v.desconto ? ['Subtotal: '+fmtMoney(subtotal),'Desconto: -'+fmtMoney(v.desconto),'Total: '+fmtMoney(v.total)] : ['Total: '+fmtMoney(v.total)];
+  const text = buildReceiptText('Comprovante de venda', v.numero,
+    ['Cliente: '+v.cliente, 'Data: '+fmtDate(v.data), 'Pagamento: '+v.formaPagamento], v.itens, totalLines);
+  printDocument(html, text);
+}
+function printPedido(id){
+  const p = cur().pedidos.find(x=>x.id===id);
+  const html = `<div class="doc">${docHeadHtml('Comprovante de pedido / ordem de produção', p.numero)}
+    <div class="doc-meta"><span>Cliente: <strong>${esc(p.cliente)}</strong></span><span>Data: ${fmtDate(p.data)}</span><span>Status: ${esc(p.status)}</span></div>
+    ${itensTableHtml(p.itens)}
+    <div class="doc-total"><div class="grand">Total: ${fmtMoney(p.total)}</div></div>
+    ${p.observacoes?`<p style="font-size:12px;color:#333;">Obs.: ${esc(p.observacoes)}</p>`:''}
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+  const text = buildReceiptText('Comprovante de pedido', p.numero,
+    ['Cliente: '+p.cliente, 'Data: '+fmtDate(p.data), 'Status: '+p.status], p.itens, ['Total: '+fmtMoney(p.total)], p.observacoes);
+  printDocument(html, text);
+}
+function printEstoque(filtro){
+  filtro = filtro || 'todos';
+  const d = cur(); const isEtq = ws==='etiquetag';
+  let body = '';
+  let titulo = 'Relatório de estoque';
+  if(isEtq){
+    const ribbons = d.estoque.filter(x=>x.tipo==='Ribbon');
+    const tagMPs = d.estoque.filter(x=>x.tipo==='TagMP');
+    const tagsProntos = d.estoque.filter(x=>x.tipo==='Tag');
+    if(filtro==='materiaprima' || filtro==='todos'){
+      titulo = filtro==='materiaprima' ? 'Relatório de matéria-prima' : titulo;
+      body += `<h3 style="font-family:'Space Grotesk';margin-bottom:6px;">Ribbons</h3>
+      <table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Qtd</th><th>Mín.</th><th>Custo/m</th><th>Valor total</th></tr></thead>
+      <tbody>${ribbons.map(m=>`<tr><td>${esc(m.codigo)}</td><td>${esc(m.nome)}</td><td>${esc(m.tipoRibbon)}</td><td>${fmtQty(m.quantidade)} ${esc(m.unidade)}</td><td>${fmtQty(m.estoqueMinimo)}</td><td>${fmtMoney(m.preco)}</td><td>${fmtMoney(m.quantidade*m.preco)}</td></tr>`).join('')||'<tr><td colspan="7">Nenhum item</td></tr>'}</tbody></table>
+      <h3 style="font-family:'Space Grotesk';margin-bottom:6px;margin-top:20px;">Matéria-Prima (Tags e Etiquetas de Composição em branco)</h3>
+      <table><thead><tr><th>Código</th><th>Nome</th><th>Tamanho</th><th>Rolos</th><th>Unidades</th><th>Custo/rolo</th><th>Valor total</th></tr></thead>
+      <tbody>${tagMPs.map(p=>{const tam=tamanhoObj(p.tamanhoId);return `<tr><td>${esc(p.codigo)}</td><td>${esc(p.nome)}</td><td>${esc(tam?tam.nome:'—')}</td><td>${fmtQty(p.quantidade)}</td><td>${fmtQty(tagEtiquetasDisponiveis(p))}</td><td>${fmtMoney(p.custo)}</td><td>${fmtMoney(p.quantidade*p.custo)}</td></tr>`;}).join('')||'<tr><td colspan="7">Nenhum item</td></tr>'}</tbody></table>`;
+    }
+    if(filtro==='prontos' || filtro==='todos'){
+      titulo = filtro==='prontos' ? 'Relatório de produtos prontos' : titulo;
+      body += `<h3 style="font-family:'Space Grotesk';margin-bottom:6px;margin-top:20px;">Produtos Prontos</h3>
+      <table><thead><tr><th>Código</th><th>Item</th><th>Empresa</th><th>Unidades</th><th>Preço/milheiro</th><th>Valor total</th></tr></thead>
+      <tbody>${tagsProntos.map(p=>{const emp=empresaObj(p.empresaId);
+        return `<tr><td>${esc(p.codigo)}</td><td>${esc(tagFullLabel(p))}</td><td>${emp?esc(emp.nome):'—'}</td><td>${fmtQty(p.quantidade)}</td><td>${fmtMoney(p.preco)}</td><td>${fmtMoney(itemValorEstoque(p))}</td></tr>`;
+      }).join('')||'<tr><td colspan="6">Nenhum item</td></tr>'}</tbody></table>`;
+    }
+  } else {
+    body += `<table><thead><tr><th>Código</th><th>Nome</th><th>Categoria</th><th>Tamanho</th><th>Empresa</th><th>Qtd</th><th>Mín.</th><th>Preço</th><th>Valor total</th></tr></thead>
+    <tbody>${d.estoque.map(p=>{const tam=tamanhoObj(p.tamanhoId); const emp=empresaObj(p.empresaId);return `<tr><td>${esc(p.codigo)}</td><td>${esc(p.nome)}</td><td>${esc(p.categoria)}</td><td>${esc(tam?tam.nome:'—')}</td><td>${emp?esc(emp.nome):''}</td><td>${fmtQty(p.quantidade)} ${esc(p.unidade)}</td><td>${fmtQty(p.estoqueMinimo)}</td><td>${fmtMoney(p.preco)}</td><td>${fmtMoney(itemValorEstoque(p))}</td></tr>`;}).join('')||'<tr><td colspan="9">Nenhum item</td></tr>'}</tbody></table>`;
+  }
+  const html = `<div class="doc">${docHeadHtml(titulo+' · '+WS_META[ws].label, 'Emitido em '+fmtDate(todayISO()))}${body}
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div><div></div></div></div>`;
+  const itensFiltrados = isEtq
+    ? (filtro==='materiaprima' ? d.estoque.filter(x=>x.tipo!=='Tag') : filtro==='prontos' ? d.estoque.filter(x=>x.tipo==='Tag') : d.estoque)
+    : d.estoque;
+  let text = cur().empresa.nome+'\n--------------------------------\n'+titulo.toUpperCase()+'\n--------------------------------\n';
+  itensFiltrados.forEach(it=>{ text += it.nome+': '+fmtQty(it.quantidade)+' '+it.unidade+'\n'; });
+  text += '--------------------------------\nEmitido em '+fmtDateTime(todayISO())+'\n\n\n';
+  printDocument(html, text);
+}
+function applyPrintPageStyle(formato){
+  let sizeCSS;
+  if(formato==='termica80') sizeCSS = '@page{ size: 80mm auto; margin: 3mm; }';
+  else if(formato==='termica58') sizeCSS = '@page{ size: 58mm auto; margin: 2mm; }';
+  else sizeCSS = '@page{ size: A4; margin: 15mm; }';
+  let styleEl = document.getElementById('pageSizeStyle');
+  if(!styleEl){ styleEl = document.createElement('style'); styleEl.id = 'pageSizeStyle'; document.head.appendChild(styleEl); }
+  styleEl.textContent = sizeCSS;
+}
+function printDocument(html, text){
+  const cfg = cur().configImpressao || {formato:'a4'};
+  if(cfg.metodoBluetooth==='rawbt' && text){ sendToRawBT(text); return; }
+  if(cfg.metodoBluetooth==='compartilhar' && text){ shareToPrintApp(text); return; }
+  applyPrintPageStyle(cfg.formato);
+  const area = document.getElementById('printArea');
+  area.className = cfg.formato==='termica80' ? 'thermal thermal80' : cfg.formato==='termica58' ? 'thermal thermal58' : '';
+  area.innerHTML = cfg.formato && cfg.formato!=='a4' ? html.replace('class="doc"','class="doc thermal"') : html;
+  setTimeout(()=>window.print(), 50);
+}
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
+(async function init(){
+  document.getElementById('content').innerHTML = `<div class="empty"><p>Carregando dados...</p></div>`;
+  await loadAll();
+  document.body.className = 'ws-'+ws;
+  renderAll();
+})();
+</script>
+</body>
+</html>
