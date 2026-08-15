@@ -1,4 +1,4 @@
-const CACHE_NAME = 'estoque-central-v1';
+const CACHE_NAME = 'estoque-central-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -21,20 +21,19 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Network-first: sempre tenta buscar a versao mais nova primeiro.
+// So usa a copia salva (cache) se estiver sem internet.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
