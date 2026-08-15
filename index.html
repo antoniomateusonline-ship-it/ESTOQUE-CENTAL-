@@ -164,6 +164,14 @@
   .cap-row{display:flex;justify-content:space-between;font-size:13px;padding:2px 0;}
   .valor-box{background:var(--good-bg);color:var(--good);border-radius:8px;padding:9px 12px;display:flex;justify-content:space-between;font-weight:700;font-size:13.5px;margin-top:10px;}
   .stock-group-title{font-family:'Space Grotesk';font-size:16px;font-weight:700;margin:22px 0 12px 0;display:flex;align-items:center;gap:8px;}
+  .catalog-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:24px;}
+  .catalog-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;}
+  .catalog-photo{width:100%;aspect-ratio:1/1;background:var(--line-soft);display:flex;align-items:center;justify-content:center;color:var(--ink-soft);overflow:hidden;}
+  .catalog-photo img{width:100%;height:100%;object-fit:cover;}
+  .catalog-body{padding:12px 14px;}
+  .catalog-name{font-family:'Space Grotesk';font-weight:700;font-size:14px;}
+  .catalog-sub{font-size:11.5px;color:var(--ink-soft);margin-top:2px;}
+  .catalog-price{font-family:'Space Grotesk';font-weight:700;font-size:15px;margin-top:8px;color:var(--accent-ink);}
 
   .empty{padding:56px 20px;text-align:center;color:var(--ink-soft);}
   .empty .glyph{font-size:30px;margin-bottom:10px;opacity:.5;}
@@ -296,10 +304,15 @@ const WS_META = {
 let ws = 'etiquetag';
 let estoqueFiltro = 'todos';
 function emptyData(){
-  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[],
+  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[],
     configImpressao:{formato:'a4', assinatura:true, documento:true}, seq:{pd:1,vd:1,rb:1,tm:1,tg:1,it:1} };
 }
 let DATA = { etiquetag: emptyData(), vimats: emptyData() };
+const appStorage = (window.storage && typeof window.storage.get==='function') ? window.storage : {
+  async get(key){ try{ const v = localStorage.getItem(key); return v!==null ? {key, value:v} : null; } catch(e){ return null; } },
+  async set(key, value){ try{ localStorage.setItem(key, value); return {key, value}; } catch(e){ return null; } },
+  async delete(key){ try{ localStorage.removeItem(key); return {key, deleted:true}; } catch(e){ return null; } },
+};
 function cur(){ return DATA[ws]; }
 
 let section = 'dashboard';
@@ -314,11 +327,13 @@ function migrateIfNeeded(wsKey, raw){
   if(!raw.empresas) raw.empresas = [];
   if(!raw.producoes) raw.producoes = [];
   if(!raw.ribbonDescricoes) raw.ribbonDescricoes = [];
+  if(!raw.compras) raw.compras = [];
   if(!raw.estoque) raw.estoque = [];
   raw.empresas.forEach(e=>{ if(!e.referencias) e.referencias = []; e.referencias.forEach(r=>{ if(!r.id) r.id = uid(); }); });
   if(!raw.vendas) raw.vendas = [];
   raw.vendas.forEach(v=>{
     if(!v.statusPagamento) v.statusPagamento = 'Pago';
+    if(v.entregue===undefined) v.entregue = true;
     if(v.empresaId===undefined){
       const found = raw.empresas.find(e=>e.nome.toLowerCase()===(v.cliente||'').toLowerCase());
       v.empresaId = found ? found.id : '';
@@ -379,7 +394,7 @@ async function loadAll(){
   for(const k of Object.keys(WS_META)){
     let got = false;
     try{
-      const r = await window.storage.get(WS_META[k].storageKey, false);
+      const r = await appStorage.get(WS_META[k].storageKey, false);
       if(r && r.value){ DATA[k] = migrateIfNeeded(k, Object.assign(emptyData(), JSON.parse(r.value))); got = true; }
     }catch(e){ /* nada nesta chave */ }
     if(!got){
@@ -388,7 +403,7 @@ async function loadAll(){
         : ['estoque-vimats-v4','estoque-vimats-v3','estoque-vimats-v2','estoque-vimats-v1'];
       for(const legacyKey of legacyKeys){
         try{
-          const r2 = await window.storage.get(legacyKey, false);
+          const r2 = await appStorage.get(legacyKey, false);
           if(r2 && r2.value){ DATA[k] = migrateIfNeeded(k, Object.assign(emptyData(), JSON.parse(r2.value))); break; }
         }catch(e2){ /* nada nesta chave legada */ }
       }
@@ -414,7 +429,7 @@ async function loadAll(){
   }
 }
 async function saveWS(){
-  try{ await window.storage.set(WS_META[ws].storageKey, JSON.stringify(DATA[ws]), false); }
+  try{ await appStorage.set(WS_META[ws].storageKey, JSON.stringify(DATA[ws]), false); }
   catch(e){ showToast('Não foi possível salvar os dados agora.', 'bad'); }
 }
 
@@ -452,6 +467,29 @@ function gaugeHtml(qty, min, unidade){
     <div class="gauge"><div style="width:${lv.pct}%;background:${lv.color};"></div></div></div>`;
 }
 function badgeHtml(kind, text){ return `<span class="badge badge-${kind}">${esc(text)}</span>`; }
+
+/* ============================ PAINÉIS MINIMIZÁVEIS ============================ */
+let panelColapsado = {};
+const painelExpandidoPorPadrao = new Set(['pedidos-pendentes']);
+function isColapsado(key){
+  if(panelColapsado[key]!==undefined) return panelColapsado[key];
+  return !painelExpandidoPorPadrao.has(key);
+}
+function togglePanel(key){ panelColapsado[key] = !isColapsado(key); renderAll(); }
+function chevronIcon(collapsed){ return `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke-width="2.4" style="flex-shrink:0;transition:transform .15s;transform:rotate(${collapsed?'-90deg':'0deg'});"><path d="M6 9l6 6 6-6"/></svg>`; }
+function collapsiblePanel(key, titleHtml, subHtml, actionsHtml, contentHtml){
+  const collapsed = isColapsado(key);
+  return `<div class="panel">
+    <div class="panel-head" style="cursor:pointer;" onclick="togglePanel('${key}')">
+      <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+        ${chevronIcon(collapsed)}
+        <div style="min-width:0;"><h3 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${titleHtml}</h3>${subHtml?`<p>${subHtml}</p>`:''}</div>
+      </div>
+      ${actionsHtml?`<div onclick="event.stopPropagation()">${actionsHtml}</div>`:''}
+    </div>
+    ${collapsed ? '' : contentHtml}
+  </div>`;
+}
 function tamanhoObj(id){ return cur().tamanhos.find(x=>x.id===id); }
 function numeracaoObj(id){ return (cur().numeracoes||[]).find(x=>x.id===id); }
 function empresaObj(id){ return (cur().empresas||[]).find(x=>x.id===id); }
@@ -508,21 +546,26 @@ function renderWsBar(){
 }
 function switchWs(newWs){
   if(ws===newWs) return;
-  ws = newWs; document.body.className = 'ws-'+ws; section = 'dashboard'; estoqueFiltro='todos'; financeiroEmpresaSelecionada='';
+  ws = newWs; document.body.className = 'ws-'+ws; section = 'dashboard'; estoqueFiltro='todos'; financeiroEmpresaSelecionada=''; fechamentoMesSelecionado='';
   renderAll();
 }
 
 /* ============================ NAV / RENDER ============================ */
 function navItems(){
-  return [
+  const isEtq = ws==='etiquetag';
+  const base = [
     {id:'dashboard', label:'Painel', icon:'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z'},
     {id:'estoque', label:'Estoque', icon:'M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8'},
+  ];
+  if(!isEtq) base.push({id:'catalogo', label:'Catálogo', icon:'M4 4h16v16H4zM4 10h16M10 10v10'});
+  base.push(
     {id:'pedidos', label:'Pedidos', icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-5 8l2 2 4-4'},
     {id:'vendas', label:'Vendas', icon:'M3 3h2l2.6 12.4a2 2 0 002 1.6h8.8a2 2 0 002-1.9L21 8H6M9 21a1 1 0 100-2 1 1 0 000 2zm8 0a1 1 0 100-2 1 1 0 000 2z'},
     {id:'financeiro', label:'Financeiro', icon:'M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6'},
     {id:'tamanhos', label:WS_META[ws].tamanhoNav, icon:'M4 4h16v4H4zM4 10h10v4H4zM4 16h16v4H4z'},
-    {id:'impressao', label:'Impressão', icon:'M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6v-8z'},
-  ];
+    {id:'impressao', label:'Impressão', icon:'M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6v-8z'}
+  );
+  return base;
 }
 function renderNav(){
   const d = cur();
@@ -558,6 +601,8 @@ function renderAll(){
      : `<div style="display:flex;gap:8px;"><button class="btn btn-ghost" onclick="printEstoque('todos')">${iconPrint()} Imprimir estoque</button>
      <button class="btn btn-accent" onclick="openEstoqueForm()">${iconPlus()} Novo item</button></div>`);
     c.innerHTML = renderEstoque(); }
+  else if(section==='catalogo'){ setTopbar('Catálogo', 'Vitrine visual dos produtos, com fotos',
+    `<button class="btn btn-ghost" onclick="printCatalogo()">${iconPrint()} Imprimir catálogo</button>`); c.innerHTML = renderCatalogo(); }
   else if(section==='pedidos'){ setTopbar('Pedidos','Pedidos de clientes, antes da venda',
     `<button class="btn btn-accent" onclick="openPedidoForm()">${iconPlus()} Novo pedido</button>`); c.innerHTML = renderPedidos(); }
   else if(section==='vendas'){ setTopbar('Vendas','Vendas concluídas e comprovantes',
@@ -636,18 +681,16 @@ function renderDashboard(){
       }).join('') : `<div class="empty" style="padding:24px;"><p>Nenhuma matéria-prima cadastrada.</p></div>`}
     </div>
 
-    <div class="panel">
-      <div class="panel-head"><h3>Produções Recentes</h3></div>
-      ${producoesRecentes.length ? producoesRecentes.map(p=>{
+    ${collapsiblePanel('dash-producoes', 'Produções Recentes', '', '',
+      producoesRecentes.length ? producoesRecentes.map(p=>{
         const tam = tamanhoObj(p.tamanhoId); const num = numeracaoObj(p.numeracaoId); const emp = empresaObj(p.empresaId);
         const desc = (tam?tam.nome:'')+(num?' '+num.nome:'');
         return `<div class="list-row"><div><div class="l-name">${esc(p.responsavel||'—')} — ${esc(desc)}</div><div class="l-sub">${emp?esc(emp.nome)+' · ':''}${p.referencia?'Ref. '+esc(p.referencia)+' · ':''}${fmtDate(p.data)}</div></div>
           <div class="l-val" style="display:flex;align-items:center;gap:10px;"><div>${fmtQty(p.quantidade)} un.<div class="l-sub">${p.metrosRibbon?'Ribbon: '+fmtQty(p.metrosRibbon)+'m':''}</div></div>
           <button class="icon-btn" title="Imprimir comprovante" onclick="printProducao('${p.id}')">${iconPrint()}</button></div></div>`;
-      }).join('') : `<div class="empty" style="padding:24px;"><p>Nenhuma produção registrada ainda.</p></div>`}
-    </div>
+      }).join('') : `<div class="empty" style="padding:24px;"><p>Nenhuma produção registrada ainda.</p></div>`)}
 
-    ${financeAndAlertHtml(valorInvestidoTotal, valorMP, valorProdutos, totalVendas, vendasValidas.length, lucroObtido, baixo)}
+    ${alertHtml(baixo)}
     `;
   }
 
@@ -656,18 +699,19 @@ function renderDashboard(){
     <div class="kpi"><div class="kpi-bar"></div><div class="label">Itens em estoque</div><div class="value">${d.estoque.length}</div><div class="note">${d.pedidos.length} pedidos · ${d.vendas.length} vendas</div></div>
     <div class="kpi"><div class="kpi-bar"></div><div class="label">Pedidos pendentes</div><div class="value">${pedidosPend}</div><div class="note">Aguardando produção/entrega</div></div>
   </div>
-  ${financeAndAlertHtml(valorInvestidoTotal, valorInvestidoTotal, 0, totalVendas, vendasValidas.length, lucroObtido, baixo)}
+  ${alertHtml(baixo)}
   `;
 }
-function financeAndAlertHtml(valorInvestidoTotal, valorMP, valorProdutos, totalVendas, nVendas, lucroObtido, baixo){
-  return `
-  <div class="finance-panel">
+function financeHtml(valorInvestidoTotal, valorMP, valorProdutos, totalVendas, nVendas, lucroObtido){
+  return `<div class="finance-panel">
     <h3>Resumo Financeiro</h3>
     <div class="finance-row"><div class="finance-icon">${iconWallet()}</div><div><div class="finance-label">Investimento em Estoque</div><div class="finance-value">${fmtMoney(valorInvestidoTotal)}</div><div class="finance-note">MP: ${fmtMoney(valorMP)} · Produtos: ${fmtMoney(valorProdutos)}</div></div></div>
     <div class="finance-row"><div class="finance-icon">${iconCart()}</div><div><div class="finance-label">Total de Vendas</div><div class="finance-value">${fmtMoney(totalVendas)}</div><div class="finance-note">${nVendas} venda(s) registrada(s)</div></div></div>
     <div class="finance-row"><div class="finance-icon">${iconDollar()}</div><div><div class="finance-label">Lucro Obtido</div><div class="finance-value good">${fmtMoney(lucroObtido)}</div><div class="finance-note">Vendas − custo dos produtos</div></div></div>
-  </div>
-  ${baixo.length ? `<div class="alert-panel"><h3>${iconWarn()} Alerta de Estoque Baixo</h3>
+  </div>`;
+}
+function alertHtml(baixo){
+  return baixo.length ? `<div class="alert-panel"><h3>${iconWarn()} Alerta de Estoque Baixo</h3>
     ${baixo.map(it=>{
       let txt;
       if(ws==='etiquetag' && (it.tipo==='Ribbon')){ txt = fmtQty(it.metrosPorRolo>0?it.quantidade/it.metrosPorRolo:0)+' rolos restantes'; }
@@ -675,7 +719,7 @@ function financeAndAlertHtml(valorInvestidoTotal, valorMP, valorProdutos, totalV
       else { txt = fmtQty(it.quantidade)+' '+esc(it.unidade)+' restantes'; }
       return `<div class="alert-row"><span>${esc(it.nome)}</span><span>${txt}</span></div>`;
     }).join('')}
-  </div>` : ''}`;
+  </div>` : '';
 }
 function statusBadge(status){
   const map = {'Pendente':'warn','Em produção':'warn','Concluído':'good','Cancelado':'bad','Concluída':'good','Cancelada':'bad'};
@@ -697,7 +741,7 @@ function renderEstoque(){
     const filterBar = `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
       <button class="btn btn-sm ${estoqueFiltro==='todos'?'btn-accent':'btn-ghost'}" onclick="setFiltro('todos')">Todos</button>
       <button class="btn btn-sm ${estoqueFiltro==='Ribbon'?'btn-accent':'btn-ghost'}" onclick="setFiltro('Ribbon')">Ribbons</button>
-      <button class="btn btn-sm ${estoqueFiltro==='TagMP'?'btn-accent':'btn-ghost'}" onclick="setFiltro('TagMP')">Matéria-Prima (Tags)</button>
+      <button class="btn btn-sm ${estoqueFiltro==='TagMP'?'btn-accent':'btn-ghost'}" onclick="setFiltro('TagMP')">Tags em Branco</button>
       <button class="btn btn-sm ${estoqueFiltro==='Tag'?'btn-accent':'btn-ghost'}" onclick="setFiltro('Tag')">Produtos Prontos</button>
     </div>`;
     const ribbons = items.filter(x=>x.tipo==='Ribbon');
@@ -709,12 +753,33 @@ function renderEstoque(){
       out += ribbons.length ? `<div class="stock-grid">${ribbons.map(ribbonCardHtml).join('')}</div>` : `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhum ribbon cadastrado.</p></div></div>`;
     }
     if(estoqueFiltro==='todos' || estoqueFiltro==='TagMP'){
-      out += `<div class="stock-group-title">📦 Matéria-Prima (Tags em branco)</div>`;
+      out += `<div class="stock-group-title">📦 Tags em Branco (matéria-prima)</div>`;
       out += tagMPs.length ? `<div class="stock-grid">${tagMPs.map(tagMpCardHtml).join('')}</div>` : `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhuma matéria-prima de tag cadastrada.</p></div></div>`;
     }
     if(estoqueFiltro==='todos' || estoqueFiltro==='Tag'){
       out += `<div class="stock-group-title">🏷️ Produtos Prontos</div>`;
-      out += tagsProntos.length ? `<div class="stock-grid">${tagsProntos.map(tagProntoCardHtml).join('')}</div>` : `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhum produto pronto ainda. Use "Produzir" numa matéria-prima para gerar.</p></div></div>`;
+      const gruposEmp = {};
+      (d.empresas||[]).forEach(e=>{ gruposEmp[e.id] = { key:e.id, nome:e.nome, itens:[] }; });
+      const semEmpresaItens = [];
+      tagsProntos.forEach(p=>{
+        if(p.empresaId && gruposEmp[p.empresaId]) gruposEmp[p.empresaId].itens.push(p);
+        else semEmpresaItens.push(p);
+      });
+      const gruposOrdenados = Object.values(gruposEmp).sort((a,b)=>a.nome.localeCompare(b.nome));
+      if(semEmpresaItens.length) gruposOrdenados.push({key:'__sem__', nome:'Sem empresa definida', itens:semEmpresaItens});
+      if(gruposOrdenados.length){
+        out += gruposOrdenados.map(g=>{
+          const totalUn = g.itens.reduce((s,p)=>s+p.quantidade,0);
+          const valorTotal = g.itens.reduce((s,p)=>s+itemValorEstoque(p),0);
+          const sub = g.itens.length ? `${g.itens.length} produto(s) · ${fmtQty(totalUn)} un. · Venda potencial: ${fmtMoney(valorTotal)}` : 'Nenhum produto pronto ainda';
+          const content = g.itens.length
+            ? [...g.itens].sort((a,b)=>a.nome.localeCompare(b.nome)).map(tagProntoListRowHtml).join('')
+            : `<div class="empty" style="padding:20px;"><p>Nenhum produto pronto para esta empresa ainda. Use "Produzir" numa matéria-prima.</p></div>`;
+          return collapsiblePanel('prontos-emp-'+g.key, esc(g.nome), sub, '', content);
+        }).join('');
+      } else {
+        out += `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhum produto pronto ainda. Cadastre uma empresa em Cadastros e use "Produzir" numa matéria-prima para gerar.</p></div></div>`;
+      }
     }
     return out;
   }
@@ -738,6 +803,64 @@ function renderEstoque(){
         </div></td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
+}
+function renderCatalogo(){
+  const d = cur();
+  if(!d.estoque.length){
+    return `<div class="panel"><div class="empty"><div class="glyph">◧</div><h4>Nenhum produto cadastrado ainda</h4>
+      <p>Cadastre produtos no Estoque e adicione fotos para eles aparecerem aqui.</p>
+      <button class="btn btn-accent" onclick="goTo('estoque');openEstoqueForm();">${iconPlus()} Novo item</button></div></div>`;
+  }
+  const gruposEmp = {};
+  (d.empresas||[]).forEach(e=>{ gruposEmp[e.id] = { key:e.id, nome:e.nome, itens:[] }; });
+  const semEmpresa = { key:'__sem__', nome:'Sem empresa definida', itens:[] };
+  d.estoque.forEach(it=>{
+    if(it.empresaId && gruposEmp[it.empresaId]) gruposEmp[it.empresaId].itens.push(it);
+    else semEmpresa.itens.push(it);
+  });
+  const grupos = Object.values(gruposEmp).sort((a,b)=>a.nome.localeCompare(b.nome));
+  if(semEmpresa.itens.length) grupos.push(semEmpresa);
+
+  return grupos.map(g=>{
+    const sub = g.itens.length ? `${g.itens.length} produto(s) · ${g.itens.filter(it=>it.foto).length} com foto` : 'Nenhum produto ainda';
+    const content = g.itens.length ? `<div class="catalog-grid">${[...g.itens].sort((a,b)=>a.nome.localeCompare(b.nome)).map(catalogCardHtml).join('')}</div>`
+      : `<div class="empty" style="padding:20px;"><p>Nenhum produto para esta empresa ainda.</p></div>`;
+    return collapsiblePanel('catalogo-emp-'+g.key, esc(g.nome), sub, '', content);
+  }).join('');
+}
+function catalogCardHtml(it){
+  const tam = tamanhoObj(it.tamanhoId);
+  return `<div class="catalog-card">
+    <div class="catalog-photo">${it.foto ? `<img src="${it.foto}" alt="${esc(it.nome)}">` : `<span style="font-size:11px;">Sem foto</span>`}</div>
+    <div class="catalog-body">
+      <div class="catalog-name">${esc(it.nome)}</div>
+      <div class="catalog-sub">${esc(it.codigo)}${tam?' · '+esc(tam.nome):''}${it.categoria?' · '+esc(it.categoria):''}</div>
+      <div class="catalog-sub">${fmtQty(it.quantidade)} ${esc(it.unidade)} em estoque</div>
+      <div class="catalog-price">${fmtMoney(it.preco)}</div>
+      <div class="row-actions" style="margin-top:8px;">
+        <button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
+      </div>
+    </div>
+  </div>`;
+}
+function printCatalogo(){
+  const d = cur();
+  const itensComEmpresa = [...d.estoque].sort((a,b)=>a.nome.localeCompare(b.nome));
+  const body = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">${itensComEmpresa.map(it=>{
+    const tam = tamanhoObj(it.tamanhoId); const emp = empresaObj(it.empresaId);
+    return `<div style="border:1px solid #ccc;border-radius:8px;overflow:hidden;">
+      ${it.foto?`<img src="${it.foto}" style="width:100%;height:140px;object-fit:cover;">`:`<div style="width:100%;height:140px;background:#eee;"></div>`}
+      <div style="padding:8px;font-size:11px;">
+        <div style="font-weight:700;">${esc(it.nome)}</div>
+        <div>${esc(it.codigo)}${tam?' · '+esc(tam.nome):''}${emp?' · '+esc(emp.nome):''}</div>
+        <div style="font-weight:700;margin-top:4px;">${fmtMoney(it.preco)}</div>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+  const html = `<div class="doc">${docHeadHtml('Catálogo · '+WS_META[ws].label, 'Emitido em '+fmtDate(todayISO()))}${body}
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div><div></div></div></div>`;
+  const text = buildReceiptText('Catálogo', WS_META[ws].label, itensComEmpresa.map(it=>it.nome+': '+fmtMoney(it.preco)), [], []);
+  printDocument(html, text);
 }
 function ribbonCardHtml(it){
   const d = cur();
@@ -782,6 +905,21 @@ function tagMpCardHtml(it){
     <div class="stock-card-row"><span>Custo: ${fmtMoney3(custoUn)}/un</span><span class="good">Estoque: ${fmtMoney(it.quantidade*it.custo)}</span></div>
     <div class="row-actions" style="margin-top:10px;">
       <button class="btn btn-accent btn-sm" onclick="openProducaoModal('${it.id}')">${iconFactory()} Produzir</button>
+      <button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
+      <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button>
+    </div>
+  </div>`;
+}
+function tagProntoListRowHtml(it){
+  const tam = tamanhoObj(it.tamanhoId);
+  const num = numeracaoObj(it.numeracaoId);
+  const lv = stockLevel(it.quantidade, it.estoqueMinimo);
+  return `<div class="list-row">
+    <div><div class="l-name">${esc(it.nome)}${num?` <span class="num-tag">${esc(num.nome)}</span>`:''}${it.categoriaTag==='Composição'?' <span class="cat-tag">Composição</span>':''}</div>
+      <div class="l-sub">${esc(it.codigo)}${tam?' · '+esc(tam.nome):''} · Custo ${fmtMoney3(it.custo)}/un ${it.estoqueMinimo>0?'· '+badgeHtml(lv.badge, lv.text):''}</div></div>
+    <div class="l-val" style="display:flex;align-items:center;gap:8px;">
+      <div>${fmtQty(it.quantidade)} un.<div class="l-sub">${fmtMoney(it.preco)}/milheiro</div></div>
+      <button class="icon-btn" title="Ajustar estoque" onclick="openAjusteModal('${it.id}')">${iconAdjust()}</button>
       <button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
       <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button>
     </div>
@@ -878,6 +1016,14 @@ function openEstoqueForm(id){
     </div>` : '';
 
   const vimatsFields = !isEtq ? `
+    <div class="field"><label>Foto do produto</label>
+      <div id="fotoPreviewWrap" style="margin-bottom:8px;${it.foto?'':'display:none;'}">
+        <img id="fotoPreview" src="${it.foto||''}" style="width:100%;max-height:220px;object-fit:cover;border-radius:8px;border:1px solid var(--line);">
+      </div>
+      <input type="file" accept="image/*" id="f_fotoinput" onchange="handleFotoUpload(this)">
+      <input type="hidden" id="f_foto" value="${esc(it.foto||'')}">
+      <p class="hint" id="fotoHint">${it.foto?'Toque para trocar a foto.':'JPG ou PNG — a imagem é redimensionada automaticamente.'}</p>
+    </div>
     <div class="field"><label>Categoria</label><input id="f_categoria" value="${esc(it.categoria)}" placeholder="Ex.: Vestuário"></div>
     <div class="field-row">
       <div class="field"><label>Tamanho</label>${tamanhoSelectHtml}</div>
@@ -916,6 +1062,31 @@ function openEstoqueForm(id){
   `);
   updatePricingPreview();
   updateRibbonCusto();
+}
+function handleFotoUpload(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  if(!file.type.startsWith('image/')){ showToast('Selecione um arquivo de imagem.', 'bad'); return; }
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    const img = new Image();
+    img.onload = function(){
+      const maxDim = 600;
+      let w = img.width, h = img.height;
+      if(w>h && w>maxDim){ h = Math.round(h*(maxDim/w)); w = maxDim; }
+      else if(h>=w && h>maxDim){ w = Math.round(w*(maxDim/h)); h = maxDim; }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.68);
+      const hidden = document.getElementById('f_foto'); if(hidden) hidden.value = dataUrl;
+      const preview = document.getElementById('fotoPreview'); if(preview) preview.src = dataUrl;
+      const wrap = document.getElementById('fotoPreviewWrap'); if(wrap) wrap.style.display = 'block';
+      const hint = document.getElementById('fotoHint'); if(hint) hint.textContent = 'Toque para trocar a foto.';
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
 }
 function handleEmpresaSelect(sel){
   if(sel.value==='__new__'){
@@ -1030,6 +1201,7 @@ function saveEstoque(e){
     categoriaTag: 'Tag',
     categoria: !isEtq ? document.getElementById('f_categoria').value.trim() : '',
     empresaId: document.getElementById('f_empresa') ? document.getElementById('f_empresa').value : '',
+    foto: document.getElementById('f_foto') ? document.getElementById('f_foto').value : '',
     fornecedor: document.getElementById('f_fornecedor') ? document.getElementById('f_fornecedor').value.trim() : '',
     metrosPorRolo: (isEtq && tipo==='Ribbon' && document.getElementById('f_metrosrolo')) ? (parseFloat(document.getElementById('f_metrosrolo').value)||0) : 0,
     precoRolo: (isEtq && tipo==='Ribbon' && document.getElementById('f_precorolo')) ? (parseFloat(document.getElementById('f_precorolo').value)||0) : 0,
@@ -1059,12 +1231,12 @@ function openAjusteModal(id){
   const item = cur().estoque.find(x=>x.id===id);
   const isTagMp = ws==='etiquetag' && item.tipo==='TagMP';
   const isRibbon = ws==='etiquetag' && item.tipo==='Ribbon';
+  const isMateriaPrima = isTagMp || isRibbon;
   const tam = isTagMp ? tamanhoObj(item.tamanhoId) : null;
   const upr = tam ? (tam.unidadesPorRolo||0) : 0;
   const metrosPorRolo = isRibbon ? (item.metrosPorRolo||0) : 0;
   const temConversao = (isTagMp && upr>0) || (isRibbon && metrosPorRolo>0);
   const unidadeBase = isRibbon ? 'metros' : 'unidades';
-  const unidadeAlt = 'rolos';
   const estoqueAtualTxt = isRibbon
     ? `${fmtQty(item.quantidade)} metros${metrosPorRolo>0?' ('+fmtQty(item.quantidade/metrosPorRolo)+' rolos)':''}`
     : isTagMp
@@ -1076,7 +1248,7 @@ function openAjusteModal(id){
       <div class="modal-body">
         <p style="margin-top:0;color:var(--ink-soft);font-size:13px;">${esc(tagFullLabel(item))} — estoque atual: <strong class="mono">${estoqueAtualTxt}</strong></p>
         <div class="field"><label>Tipo de movimento</label>
-          <div class="radio-row"><label><input type="radio" name="tipo" value="entrada" checked> Entrada</label><label><input type="radio" name="tipo" value="saida"> Saída</label></div>
+          <div class="radio-row"><label><input type="radio" name="tipo" value="entrada" checked onchange="atualizarCampoCompra()"> Entrada</label><label><input type="radio" name="tipo" value="saida" onchange="atualizarCampoCompra()"> Saída</label></div>
         </div>
         ${temConversao ? `
         <div class="field"><label>Registrar em</label>
@@ -1085,14 +1257,22 @@ function openAjusteModal(id){
         <div class="field"><label>Quantidade</label><input required type="number" step="0.001" min="0.001" id="f_qtd" placeholder="0">
           <p class="hint">1 rolo = ${fmtQty(isRibbon?metrosPorRolo:upr)} ${unidadeBase}. Informe do jeito que for mais fácil — o sistema converte sozinho.</p></div>`
         : `<div class="field"><label>Quantidade (${esc(item.unidade)})</label><input required type="number" step="0.001" min="0.001" id="f_qtd" placeholder="0"></div>`}
+        ${isMateriaPrima ? `<div class="field" id="campoValorCompra"><label>Valor gasto nesta compra (R$) — opcional</label><input type="number" step="0.01" min="0" id="f_valorcompra" placeholder="Ex: 150.00">
+          <p class="hint">Se preenchido, entra no Fechamento de Caixa (aba Financeiro) como reinvestimento em matéria-prima do mês.</p></div>` : ''}
         <div class="field"><label>Motivo (opcional)</label><input id="f_motivo" placeholder="Ex.: compra, perda, ajuste de inventário"></div>
       </div>
       <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Confirmar</button></div>
     </form>`);
 }
+function atualizarCampoCompra(){
+  const tipo = document.querySelector('input[name="tipo"]:checked').value;
+  const campo = document.getElementById('campoValorCompra');
+  if(campo) campo.style.display = tipo==='entrada' ? 'block' : 'none';
+}
 function applyAjuste(e, id){
   e.preventDefault();
-  const item = cur().estoque.find(x=>x.id===id);
+  const d = cur();
+  const item = d.estoque.find(x=>x.id===id);
   const tipo = document.querySelector('input[name="tipo"]:checked').value;
   let qtd = parseFloat(document.getElementById('f_qtd').value)||0;
   const unidadeSel = document.querySelector('input[name="unidadeAjuste"]:checked');
@@ -1108,150 +1288,159 @@ function applyAjuste(e, id){
   }
   if(tipo==='saida' && qtd>item.quantidade){ showToast('Quantidade de saída maior que o estoque disponível.', 'bad'); return; }
   item.quantidade = tipo==='entrada' ? item.quantidade+qtd : item.quantidade-qtd;
+  const valorCompraEl = document.getElementById('f_valorcompra');
+  const motivoEl = document.getElementById('f_motivo');
+  if(tipo==='entrada' && valorCompraEl){
+    const valor = parseFloat(valorCompraEl.value)||0;
+    if(valor>0){
+      if(!d.compras) d.compras = [];
+      d.compras.push({ id: uid(), data: todayISO(), itemId: id, itemNome: item.nome, quantidade: qtd, unidade: item.unidade, valor, motivo: motivoEl?motivoEl.value.trim():'' });
+    }
+  }
   closeModal(); saveWS(); renderAll();
   showToast('Estoque atualizado.', 'good');
 }
 
+let producaoItens = [];
 function openProducaoModal(tagMpId){
   const d = cur();
   const mp = d.estoque.find(x=>x.id===tagMpId);
   const tam = tamanhoObj(mp.tamanhoId);
-  const ribbons = d.estoque.filter(x=>x.tipo==='Ribbon');
-  const empresasCatalog = d.empresas||[];
   const numeracoes = d.numeracoes||[];
-  const referencias = allReferenciasList();
   const pedidosRelacionados = d.pedidos.filter(p=>p.status==='Pendente' && p.itens.some(it=>it.tamanhoId===mp.tamanhoId));
+  producaoItens = [{empresaId:'', numeracaoId: numeracoes[0]?numeracoes[0].id:'', referenciaId:'', ribbonId:'', quantidade:'', precoMilheiro: tam&&tam.precoMilheiro?tam.precoMilheiro:''}];
   openModal(`
     <div class="modal-head"><h3>Produzir · ${esc(mp.nome)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <form onsubmit="saveProducao(event,'${tagMpId}')">
       <div class="modal-body">
-        ${pedidosRelacionados.length ? `<div class="field"><label>Pedido relacionado (opcional)</label><select id="f_pedidorel" onchange="preencherDePedido(this.value)">
+        <p class="hint" style="margin-top:0;">Disponível para produção: <strong>${fmtQty(tagEtiquetasDisponiveis(mp))} etiquetas</strong> (${fmtQty(mp.quantidade)} rolos)</p>
+        ${pedidosRelacionados.length ? `<div class="field"><label>Carregar itens de um pedido pendente (opcional)</label><select onchange="carregarItensDoPedido(this.value,'${tagMpId}')">
           <option value="">Nenhum — produção avulsa</option>
           ${pedidosRelacionados.map(p=>`<option value="${p.id}">${esc(p.numero)} — ${esc(p.cliente)}</option>`).join('')}
-        </select><p class="hint">Selecionar preenche empresa, tamanho, referência e descrição automaticamente a partir do pedido.</p></div>` : ''}
-        <div class="field"><label>Empresa / Marca</label><select id="f_empresa" onchange="handleEmpresaSelect(this)">
-          <option value="">Nenhuma</option>
-          ${empresasCatalog.map(e=>`<option value="${e.id}">${esc(e.nome)}</option>`).join('')}
-          <option value="__new__">+ Nova empresa...</option>
-        </select></div>
-        <div class="field"><label>Tipo de Tag</label><input value="${esc(mp.nome)} (${it_categoriaLabel(mp)})" readonly>
-          <p class="hint">Estoque: ${fmtQty(tagEtiquetasDisponiveis(mp))} unidades (${fmtQty(mp.quantidade)} rolos)</p></div>
-        ${numeracoes.length ? `<div class="field"><label>Tamanho / Numeração</label>
-          <div class="radio-row" id="numeracaoBtns">
-            ${numeracoes.map((n,i)=>`<button type="button" class="btn btn-sm ${i===0?'btn-accent':'btn-ghost'}" data-numeracao="${n.id}" onclick="selecionarNumeracao(this)">${esc(n.nome)}</button>`).join('')}
-          </div><input type="hidden" id="f_numeracao" value="${numeracoes[0].id}"></div>` : `<input type="hidden" id="f_numeracao" value="">`}
-        ${referencias.length ? `<div class="field"><label>Referência (opcional)</label><select id="f_referencia" onchange="atualizarDescricaoRef()">
-          <option value="">Nenhuma</option>
-          ${referencias.map(r=>`<option value="${r.id}">${esc(r.empresaNome)} · ${esc(r.codigo)}</option>`).join('')}
-        </select></div>
-        <div class="field"><label>Descrição</label><input id="f_descricaoref" readonly placeholder="Preenchida pela referência"></div>` : ''}
-        <div class="field"><label>Ribbon</label><select id="f_ribbon" onchange="updateProducaoPreview()">
-          <option value="">Não descontar ribbon</option>
-          ${ribbons.map(r=>`<option value="${r.id}">${esc(r.nome)} (${esc(r.tipoRibbon)})</option>`).join('')}
-        </select><p class="hint" id="ribbonEstoqueHint"></p></div>
-        <div class="field"><label>Quantidade a Produzir</label><input required type="number" step="0.001" min="0.001" id="f_qtd" placeholder="Ex: 1000" oninput="updateProducaoPreview()"></div>
-        <div class="field"><label>Valor de Venda do Milheiro (R$)</label><input type="number" step="0.001" min="0" id="f_precomilheiro" value="${tam&&tam.precoMilheiro?tam.precoMilheiro:''}" placeholder="Ex: 25.00" oninput="updateProducaoPreview()">
-          <p class="hint" id="valorUnitarioHint">Valor unitário: R$ 0.000</p></div>
+        </select><p class="hint">Cria um item de produção para cada tamanho pedido, já preenchido.</p></div>` : ''}
+        <div id="producaoItensBody"></div>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="addProducaoItem('${tagMpId}')" style="margin-bottom:14px;">${iconPlus()} Adicionar item</button>
         <div class="field"><label>Responsável (quem produziu)</label><input id="f_responsavel" placeholder="Ex.: Mateus"></div>
+        <div class="total-line"><span>Total a produzir</span><span id="producaoTotalQtd">0 un.</span></div>
       </div>
       <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconFactory()} Registrar Produção</button></div>
     </form>`);
-  updateProducaoPreview();
+  renderProducaoItensBody(tagMpId);
 }
-function preencherDePedido(pedidoId){
+function producaoItemRowHtml(idx, item, tagMpId){
+  const d = cur();
+  const empresasCatalog = d.empresas||[];
+  const numeracoes = d.numeracoes||[];
+  const ribbons = d.estoque.filter(x=>x.tipo==='Ribbon');
+  const referencias = allReferenciasList();
+  const subtotalQtd = parseFloat(item.quantidade)||0;
+  return `<div class="panel" style="margin-bottom:10px;padding:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <strong style="font-size:12.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;">Item ${idx+1}</strong>
+      ${producaoItens.length>1?`<button type="button" class="icon-btn" onclick="removeProducaoItem(${idx},'${tagMpId}')">${iconX()}</button>`:''}
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Empresa / Marca</label><select onchange="updateProducaoItem(${idx},'empresaId',this.value,'${tagMpId}')">
+        <option value="">Nenhuma</option>${empresasCatalog.map(e=>`<option value="${e.id}" ${item.empresaId===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Numeração</label><select onchange="updateProducaoItem(${idx},'numeracaoId',this.value,'${tagMpId}')">
+        <option value="">Nenhuma</option>${numeracoes.map(n=>`<option value="${n.id}" ${item.numeracaoId===n.id?'selected':''}>${esc(n.nome)}</option>`).join('')}
+      </select></div>
+    </div>
+    ${referencias.length?`<div class="field"><label>Referência (opcional)</label><select onchange="updateProducaoItem(${idx},'referenciaId',this.value,'${tagMpId}')">
+      <option value="">Nenhuma</option>${referencias.map(r=>`<option value="${r.id}" ${item.referenciaId===r.id?'selected':''}>${esc(r.empresaNome)} · ${esc(r.codigo)}</option>`).join('')}
+    </select></div>`:''}
+    <div class="field-row">
+      <div class="field"><label>Ribbon</label><select onchange="updateProducaoItem(${idx},'ribbonId',this.value,'${tagMpId}')">
+        <option value="">Não descontar</option>${ribbons.map(r=>`<option value="${r.id}" ${item.ribbonId===r.id?'selected':''}>${esc(r.nome)} (${esc(r.tipoRibbon)})</option>`).join('')}
+      </select></div>
+      <div class="field"><label>Quantidade</label><input type="number" step="0.001" min="0.001" value="${item.quantidade}" placeholder="Ex: 200" onchange="updateProducaoItem(${idx},'quantidade',this.value,'${tagMpId}')"></div>
+    </div>
+    <div class="field"><label>Valor de venda do milheiro (R$)</label><input type="number" step="0.001" min="0" value="${item.precoMilheiro}" placeholder="Ex: 25.00" onchange="updateProducaoItem(${idx},'precoMilheiro',this.value,'${tagMpId}')"></div>
+    <div class="subtle" style="text-align:right;">Subtotal: ${fmtQty(subtotalQtd)} un.</div>
+  </div>`;
+}
+function addProducaoItem(tagMpId){
+  const d = cur(); const numeracoes = d.numeracoes||[]; const tam = tamanhoObj(d.estoque.find(x=>x.id===tagMpId).tamanhoId);
+  producaoItens.push({empresaId:'', numeracaoId: numeracoes[0]?numeracoes[0].id:'', referenciaId:'', ribbonId:'', quantidade:'', precoMilheiro: tam&&tam.precoMilheiro?tam.precoMilheiro:''});
+  renderProducaoItensBody(tagMpId);
+}
+function removeProducaoItem(idx, tagMpId){ producaoItens.splice(idx,1); renderProducaoItensBody(tagMpId); }
+function updateProducaoItem(idx, field, value, tagMpId){ producaoItens[idx][field] = value; renderProducaoItensBody(tagMpId); }
+function renderProducaoItensBody(tagMpId){
+  const body = document.getElementById('producaoItensBody');
+  if(!body) return;
+  body.innerHTML = producaoItens.map((it,idx)=>producaoItemRowHtml(idx,it,tagMpId)).join('');
+  const total = producaoItens.reduce((s,it)=>s+(parseFloat(it.quantidade)||0),0);
+  const totalEl = document.getElementById('producaoTotalQtd');
+  if(totalEl) totalEl.textContent = fmtQty(total)+' un.';
+}
+function carregarItensDoPedido(pedidoId, tagMpId){
   if(!pedidoId) return;
   const d = cur();
   const p = d.pedidos.find(x=>x.id===pedidoId);
-  if(!p) return;
-  const mpId = document.querySelector('#modalBox form').getAttribute('onsubmit').match(/'([^']+)'/)[1];
-  const mp = d.estoque.find(x=>x.id===mpId);
-  const item = p.itens.find(it=>it.tamanhoId===mp.tamanhoId);
-  if(!item) return;
-  if(item.empresaId){ const empSel=document.getElementById('f_empresa'); if(empSel) empSel.value = item.empresaId; }
-  if(item.numeracaoId){ const btn = document.querySelector('#numeracaoBtns button[data-numeracao="'+item.numeracaoId+'"]'); if(btn) selecionarNumeracao(btn); }
-  const refSel = document.getElementById('f_referencia');
-  if(refSel && item.referencia){
-    const list = allReferenciasList();
-    const found = list.find(r=>r.codigo===item.referencia && (!item.empresaId || r.empresaNome));
-    if(found){ refSel.value = found.id; atualizarDescricaoRef(); }
-  }
-  const qtdEl = document.getElementById('f_qtd'); if(qtdEl && item.quantidade){ qtdEl.value = item.quantidade; }
-  updateProducaoPreview();
-}
-function atualizarDescricaoRef(){
-  const sel = document.getElementById('f_referencia');
-  const ref = sel ? allReferenciasList().find(r=>r.id===sel.value) : null;
-  const descInput = document.getElementById('f_descricaoref');
-  if(descInput) descInput.value = ref ? ref.descricao : '';
+  const mp = d.estoque.find(x=>x.id===tagMpId);
+  if(!p || !mp) return;
+  const itensDoPedido = p.itens.filter(it=>it.tamanhoId===mp.tamanhoId);
+  if(!itensDoPedido.length) return;
+  producaoItens = itensDoPedido.map(it=>{
+    let referenciaId = '';
+    if(it.referencia){
+      const found = allReferenciasList().find(r=>r.codigo===it.referencia);
+      if(found) referenciaId = found.id;
+    }
+    return { empresaId: it.empresaId||'', numeracaoId: it.numeracaoId||'', referenciaId, ribbonId:'', quantidade: it.quantidade, precoMilheiro: it.precoUnit?it.precoUnit*1000:'' };
+  });
+  renderProducaoItensBody(tagMpId);
 }
 function it_categoriaLabel(it){ return it.categoriaTag==='Composição' ? 'Etiqueta de Composição' : 'Tag'; }
-function selecionarNumeracao(btn){
-  document.querySelectorAll('#numeracaoBtns button').forEach(b=>b.className='btn btn-sm btn-ghost');
-  btn.className = 'btn btn-sm btn-accent';
-  document.getElementById('f_numeracao').value = btn.dataset.numeracao;
-}
-function updateProducaoPreview(){
-  const d = cur();
-  const ribbonSel = document.getElementById('f_ribbon');
-  const ribbon = ribbonSel && ribbonSel.value ? d.estoque.find(x=>x.id===ribbonSel.value) : null;
-  const hint = document.getElementById('ribbonEstoqueHint');
-  if(hint) hint.textContent = ribbon ? `Estoque: ${fmtQty(ribbon.quantidade)}m (${fmtQty(ribbon.metrosPorRolo>0?ribbon.quantidade/ribbon.metrosPorRolo:0)} rolos)` : '';
-  const precoEl = document.getElementById('f_precomilheiro');
-  const preco = precoEl ? (parseFloat(precoEl.value)||0) : 0;
-  const vuHint = document.getElementById('valorUnitarioHint');
-  if(vuHint) vuHint.textContent = 'Valor unitário: '+fmtMoney3(preco/1000);
-}
 function saveProducao(e, tagMpId){
   e.preventDefault();
   const d = cur();
   const mp = d.estoque.find(x=>x.id===tagMpId);
   const tam = tamanhoObj(mp.tamanhoId);
   const upr = tam ? (tam.unidadesPorRolo||0) : 0;
-  const quantidade = parseFloat(document.getElementById('f_qtd').value)||0;
-  if(quantidade<=0){ showToast('Informe uma quantidade válida.', 'bad'); return; }
-  const rollsNecessarios = upr>0 ? quantidade/upr : quantidade;
-  if(rollsNecessarios > mp.quantidade){ showToast('Matéria-prima insuficiente para essa quantidade.', 'bad'); return; }
-  const ribbonId = document.getElementById('f_ribbon').value;
   const consumoM = tam ? getConsumoMetros(tam) : 0;
-  let metrosRibbon = 0; let ribbon = null;
-  if(ribbonId){
-    ribbon = d.estoque.find(x=>x.id===ribbonId);
-    metrosRibbon = quantidade*consumoM;
-    if(ribbon && metrosRibbon>ribbon.quantidade){ showToast('Ribbon insuficiente para essa quantidade.', 'bad'); return; }
+  const itensValidos = producaoItens.filter(it=>(parseFloat(it.quantidade)||0)>0);
+  if(!itensValidos.length){ showToast('Adicione ao menos um item com quantidade.', 'bad'); return; }
+  const totalQuantidade = itensValidos.reduce((s,it)=>s+(parseFloat(it.quantidade)||0),0);
+  const rollsNecessarios = upr>0 ? totalQuantidade/upr : totalQuantidade;
+  if(rollsNecessarios > mp.quantidade){ showToast('Matéria-prima insuficiente para a quantidade total.', 'bad'); return; }
+  const consumoPorRibbon = {};
+  itensValidos.forEach(it=>{ if(it.ribbonId){ consumoPorRibbon[it.ribbonId] = (consumoPorRibbon[it.ribbonId]||0) + (parseFloat(it.quantidade)||0)*consumoM; } });
+  for(const ribbonId in consumoPorRibbon){
+    const rb = d.estoque.find(x=>x.id===ribbonId);
+    if(!rb || rb.quantidade < consumoPorRibbon[ribbonId]){ showToast('Ribbon "'+(rb?rb.nome:'?')+'" insuficiente para a produção.', 'bad'); return; }
   }
-  const numeracaoId = document.getElementById('f_numeracao').value;
-  const empresaId = document.getElementById('f_empresa').value;
   const responsavel = document.getElementById('f_responsavel').value.trim();
-  const precoMilheiro = parseFloat(document.getElementById('f_precomilheiro').value)||0;
-  const refSel = document.getElementById('f_referencia');
-  const refInfo = refSel && refSel.value ? allReferenciasList().find(r=>r.id===refSel.value) : null;
-  const pedidoRelEl = document.getElementById('f_pedidorel');
-  const pedidoRelId = pedidoRelEl ? pedidoRelEl.value : '';
-
   mp.quantidade -= rollsNecessarios;
-  if(ribbon) ribbon.quantidade -= metrosRibbon;
-
   const custoTagUn = upr>0 ? mp.custo/upr : 0;
-  const custoRibbonUn = ribbon ? ribbon.preco*consumoM : 0;
-  const custoNovoUn = custoTagUn + custoRibbonUn;
-
-  let pronto = d.estoque.find(x=>x.tipo==='Tag' && x.tamanhoId===mp.tamanhoId && x.categoriaTag===mp.categoriaTag && x.numeracaoId===numeracaoId && x.empresaId===empresaId);
-  if(pronto){
-    const custoMedio = (pronto.quantidade*pronto.custo + quantidade*custoNovoUn) / (pronto.quantidade+quantidade || 1);
-    pronto.quantidade += quantidade;
-    pronto.custo = custoMedio;
-    if(ribbonId) pronto.ribbonId = ribbonId;
-    if(precoMilheiro>0) pronto.preco = precoMilheiro;
-  } else {
-    pronto = { id: uid(), codigo: nextCode('TG','tg'), nome: mp.nome, tipo:'Tag', tipoRibbon:'',
-      tamanhoId: mp.tamanhoId, categoriaTag: mp.categoriaTag, numeracaoId, empresaId, ribbonId, fornecedor:'', metrosPorRolo:0,
-      quantidade, unidade:'un', estoqueMinimo:0, custo:custoNovoUn, margem:0, preco:precoMilheiro, vendavel:true };
-    d.estoque.push(pronto);
-  }
-  d.producoes.push({ id: uid(), data: todayISO(), responsavel, tamanhoId: mp.tamanhoId, numeracaoId, empresaId, quantidade, metrosRibbon, ribbonId, tagProntoId: pronto.id,
-    referencia: refInfo?refInfo.codigo:'', descricaoRef: refInfo?refInfo.descricao:'', pedidoId: pedidoRelId||'' });
+  itensValidos.forEach(it=>{
+    const quantidade = parseFloat(it.quantidade)||0;
+    let ribbon = null, metrosRibbon = 0;
+    if(it.ribbonId){ ribbon = d.estoque.find(x=>x.id===it.ribbonId); metrosRibbon = quantidade*consumoM; if(ribbon) ribbon.quantidade -= metrosRibbon; }
+    const custoRibbonUn = ribbon ? ribbon.preco*consumoM : 0;
+    const custoNovoUn = custoTagUn + custoRibbonUn;
+    const precoMilheiro = parseFloat(it.precoMilheiro)||0;
+    let pronto = d.estoque.find(x=>x.tipo==='Tag' && x.tamanhoId===mp.tamanhoId && x.categoriaTag===mp.categoriaTag && x.numeracaoId===(it.numeracaoId||'') && x.empresaId===(it.empresaId||''));
+    if(pronto){
+      const custoMedio = (pronto.quantidade*pronto.custo + quantidade*custoNovoUn) / (pronto.quantidade+quantidade || 1);
+      pronto.quantidade += quantidade;
+      pronto.custo = custoMedio;
+      if(it.ribbonId) pronto.ribbonId = it.ribbonId;
+      if(precoMilheiro>0) pronto.preco = precoMilheiro;
+    } else {
+      pronto = { id: uid(), codigo: nextCode('TG','tg'), nome: mp.nome, tipo:'Tag', tipoRibbon:'',
+        tamanhoId: mp.tamanhoId, categoriaTag: mp.categoriaTag, numeracaoId: it.numeracaoId||'', empresaId: it.empresaId||'', ribbonId: it.ribbonId||'', fornecedor:'', metrosPorRolo:0,
+        quantidade, unidade:'un', estoqueMinimo:0, custo:custoNovoUn, margem:0, preco:precoMilheiro, vendavel:true };
+      d.estoque.push(pronto);
+    }
+    const refInfo = it.referenciaId ? allReferenciasList().find(r=>r.id===it.referenciaId) : null;
+    d.producoes.push({ id: uid(), data: todayISO(), responsavel, tamanhoId: mp.tamanhoId, numeracaoId: it.numeracaoId||'', empresaId: it.empresaId||'',
+      quantidade, metrosRibbon, ribbonId: it.ribbonId||'', tagProntoId: pronto.id, referencia: refInfo?refInfo.codigo:'', descricaoRef: refInfo?refInfo.descricao:'', pedidoId:'' });
+  });
   closeModal(); saveWS(); renderAll();
-  showToast('Produção registrada! '+fmtQty(quantidade)+' un. adicionadas aos produtos prontos.', 'good');
+  showToast('Produção registrada! '+fmtQty(totalQuantidade)+' un. em '+itensValidos.length+' item(ns).', 'good');
 }
 function printProducao(id){
   const d = cur();
@@ -1282,9 +1471,10 @@ function printProducao(id){
 function renderTamanhos(){
   const d = cur(); const isEtq = ws==='etiquetag';
   let html = '';
-  html += `<div class="panel"><div class="panel-head"><div><h3>Materiais cadastrados</h3><p>Todos os itens do estoque, com edição rápida e o preço usado em pedidos/vendas.</p></div>
-    <button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button></div>
-    ${d.estoque.length ? `<table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Estoque</th><th>Preço</th><th></th></tr></thead>
+
+  html += collapsiblePanel('cad-materiais', 'Materiais cadastrados', 'Todos os itens do estoque, com edição rápida e o preço usado em pedidos/vendas.',
+    `<button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button>`,
+    d.estoque.length ? `<table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Estoque</th><th>Preço</th><th></th></tr></thead>
     <tbody>${[...d.estoque].sort((a,b)=>a.nome.localeCompare(b.nome)).map(it=>{
       const tipoTxt = isEtq ? (it.tipo==='Ribbon'?'Ribbon':it.tipo==='TagMP'?'Matéria-prima':'Produto pronto') : (it.categoria||'Item');
       const precoTxt = isEtq ? (it.tipo==='Ribbon'?fmtMoney(it.preco)+'/m':it.tipo==='TagMP'?fmtMoney(it.custo)+'/rolo (custo)':fmtMoney(it.preco)+'/milheiro') : fmtMoney(it.preco);
@@ -1292,53 +1482,53 @@ function renderTamanhos(){
       <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
       <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button></div></td></tr>`;
     }).join('')}</tbody></table>`
-    : `<div class="empty" style="padding:24px;"><p>Nenhum material cadastrado ainda.</p></div>`}
-  </div>`;
-  html += `<div class="panel"><div class="panel-head"><h3>${isEtq?'Modelos':'Tamanhos'}</h3>
-    <button class="btn btn-accent btn-sm" onclick="openTamanhoForm()">${iconPlus()} Novo modelo</button></div>`;
-  if(!d.tamanhos.length){
-    html += `<div class="empty" style="padding:24px;"><p>Nenhum produto cadastrado.</p></div>`;
-  } else if(isEtq){
-    html += `<table><thead><tr><th>Nome</th><th>Dimensão</th><th>Un./rolo</th><th>Preço/milheiro</th><th>Consumo ribbon (m/un)</th><th></th></tr></thead>
+    : `<div class="empty" style="padding:24px;"><p>Nenhum material cadastrado ainda.</p></div>`);
+
+  let modelosContent;
+  if(!d.tamanhos.length){ modelosContent = `<div class="empty" style="padding:24px;"><p>Nenhum produto cadastrado.</p></div>`; }
+  else if(isEtq){
+    modelosContent = `<table><thead><tr><th>Nome</th><th>Dimensão</th><th>Un./rolo</th><th>Preço/milheiro</th><th>Consumo ribbon (m/un)</th><th></th></tr></thead>
       <tbody>${d.tamanhos.map(t=>{ const cm=getConsumoMetros(t);
         return `<tr><td>${esc(t.nome)}</td><td class="mono">${esc(t.dimensao)||'—'}</td><td class="mono">${fmtQty(t.unidadesPorRolo)}</td><td class="mono">${fmtMoney(t.precoMilheiro||0)}</td><td class="mono">${fmtQty(cm)}</td>
         <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openTamanhoForm('${t.id}')">${iconEdit()}</button>
         <button class="icon-btn" title="Excluir" onclick="deleteTamanho('${t.id}')">${iconTrash()}</button></div></td></tr>`;
       }).join('')}</tbody></table>`;
   } else {
-    html += `<table><thead><tr><th>Tamanho</th><th></th></tr></thead>
+    modelosContent = `<table><thead><tr><th>Tamanho</th><th></th></tr></thead>
       <tbody>${d.tamanhos.map(t=>`<tr><td>${esc(t.nome)}</td>
         <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openTamanhoForm('${t.id}')">${iconEdit()}</button>
         <button class="icon-btn" title="Excluir" onclick="deleteTamanho('${t.id}')">${iconTrash()}</button></div></td></tr>`).join('')}
       </tbody></table>`;
   }
-  html += `</div>`;
+  html += collapsiblePanel('cad-modelos', isEtq?'Modelos':'Tamanhos', '',
+    `<button class="btn btn-accent btn-sm" onclick="openTamanhoForm()">${iconPlus()} Novo modelo</button>`, modelosContent);
+
   if(isEtq){
-    html += `<div class="panel"><div class="panel-head"><div><h3>Numerações</h3><p>Tamanho impresso na etiqueta: P, M, G, numeração 36-58, etc.</p></div>
-      <button class="btn btn-accent btn-sm" onclick="openNumeracaoForm()">${iconPlus()} Nova numeração</button></div>
-      ${(d.numeracoes||[]).length ? `<table><thead><tr><th>Numeração</th><th></th></tr></thead>
+    html += collapsiblePanel('cad-numeracoes', 'Numerações', 'Tamanho impresso na etiqueta: P, M, G, numeração 36-58, etc.',
+      `<button class="btn btn-accent btn-sm" onclick="openNumeracaoForm()">${iconPlus()} Nova numeração</button>`,
+      (d.numeracoes||[]).length ? `<table><thead><tr><th>Numeração</th><th></th></tr></thead>
       <tbody>${d.numeracoes.map(n=>`<tr><td><span class="num-tag">${esc(n.nome)}</span></td>
         <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openNumeracaoForm('${n.id}')">${iconEdit()}</button>
         <button class="icon-btn" title="Excluir" onclick="deleteNumeracao('${n.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
-      : `<div class="empty" style="padding:24px;"><p>Nenhuma numeração cadastrada.</p></div>`}
-    </div>`;
-    html += `<div class="panel"><div class="panel-head"><div><h3>Descrições de Ribbon</h3><p>Nomes padrão sugeridos ao cadastrar um novo Ribbon.</p></div>
-      <button class="btn btn-accent btn-sm" onclick="openRibbonDescForm()">${iconPlus()} Nova descrição</button></div>
-      ${(d.ribbonDescricoes||[]).length ? `<table><thead><tr><th>Descrição</th><th></th></tr></thead>
+      : `<div class="empty" style="padding:24px;"><p>Nenhuma numeração cadastrada.</p></div>`);
+
+    html += collapsiblePanel('cad-ribbondesc', 'Descrições de Ribbon', 'Nomes padrão sugeridos ao cadastrar um novo Ribbon.',
+      `<button class="btn btn-accent btn-sm" onclick="openRibbonDescForm()">${iconPlus()} Nova descrição</button>`,
+      (d.ribbonDescricoes||[]).length ? `<table><thead><tr><th>Descrição</th><th></th></tr></thead>
       <tbody>${d.ribbonDescricoes.map(r=>`<tr><td>${esc(r.nome)}</td>
         <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openRibbonDescForm('${r.id}')">${iconEdit()}</button>
         <button class="icon-btn" title="Excluir" onclick="deleteRibbonDesc('${r.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
-      : `<div class="empty" style="padding:24px;"><p>Nenhuma descrição cadastrada.</p></div>`}
-    </div>`;
+      : `<div class="empty" style="padding:24px;"><p>Nenhuma descrição cadastrada.</p></div>`);
   }
-  html += `<div class="panel"><div class="panel-head"><div><h3>Empresas</h3><p>Marcas/clientes para quem você confecciona ou vende. ${isEtq?'Cada empresa pode ter suas próprias referências.':''}</p></div>
-    <button class="btn btn-accent btn-sm" onclick="openEmpresaForm()">${iconPlus()} Nova empresa</button></div>
-    ${(d.empresas||[]).length ? `<table><thead><tr><th>Empresa</th>${isEtq?'<th>Referências</th>':''}<th></th></tr></thead>
+
+  html += collapsiblePanel('cad-empresas', 'Empresas', 'Marcas/clientes para quem você confecciona ou vende.'+(isEtq?' Cada empresa pode ter suas próprias referências.':''),
+    `<button class="btn btn-accent btn-sm" onclick="openEmpresaForm()">${iconPlus()} Nova empresa</button>`,
+    (d.empresas||[]).length ? `<table><thead><tr><th>Empresa</th>${isEtq?'<th>Referências</th>':''}<th></th></tr></thead>
     <tbody>${d.empresas.map(e=>`<tr><td>${esc(e.nome)}</td>${isEtq?`<td class="mono">${(e.referencias||[]).length}</td>`:''}
       <td><div class="row-actions">${isEtq?`<button class="icon-btn" title="Referências" onclick="openReferenciasModal('${e.id}')">${iconTag2()}</button>`:''}<button class="icon-btn" title="Editar" onclick="openEmpresaForm('${e.id}')">${iconEdit()}</button>
       <button class="icon-btn" title="Excluir" onclick="deleteEmpresa('${e.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
-    : `<div class="empty" style="padding:24px;"><p>Nenhuma empresa cadastrada.</p></div>`}
-  </div>`;
+    : `<div class="empty" style="padding:24px;"><p>Nenhuma empresa cadastrada.</p></div>`);
+
   return html;
 }
 function openRibbonDescForm(id){
@@ -1539,20 +1729,29 @@ function renderPedidos(){
       <p>Crie um pedido para um cliente antes de fechar a venda.</p>
       <button class="btn btn-accent" onclick="openPedidoForm()">${iconPlus()} Novo pedido</button></div></div>`;
   }
-  return `<div class="panel"><table>
-    <thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Itens</th><th>Total</th><th>Status</th><th></th></tr></thead>
-    <tbody>${[...d.pedidos].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(p=>`
-      <tr>
-        <td><span class="code-tag">${esc(p.numero)}</span></td><td>${esc(p.cliente)}</td><td>${fmtDate(p.data)}</td><td>${p.itens.length}</td>
-        <td class="mono">${fmtMoney(p.total)}</td><td>${statusBadge(p.status)}</td>
-        <td><div class="row-actions">
-          <button class="btn btn-ghost btn-sm" title="Imprimir" onclick="printPedido('${p.id}')">${iconPrint()} Imprimir</button>
-          ${p.status==='Pendente'?`<button class="btn btn-accent btn-sm" title="Transferir para venda" onclick="convertPedido('${p.id}')">${iconCheck()} Transformar em venda</button>`:''}
-          ${p.status==='Pendente'?`<button class="icon-btn" title="Cancelar pedido" onclick="cancelPedido('${p.id}')">${iconX()}</button>`:''}
-          <button class="icon-btn" title="Excluir" onclick="deletePedido('${p.id}')">${iconTrash()}</button>
-        </div></td>
-      </tr>`).join('')}
-    </tbody></table></div>`;
+  const grupos = [
+    { key:'pedidos-pendentes', titulo:'Pedidos Pendentes', status:'Pendente' },
+    { key:'pedidos-concluidos', titulo:'Pedidos Concluídos', status:'Concluído' },
+    { key:'pedidos-cancelados', titulo:'Pedidos Cancelados', status:'Cancelado' },
+  ];
+  return grupos.map(g=>{
+    const lista = d.pedidos.filter(p=>p.status===g.status).sort((a,b)=>new Date(b.data)-new Date(a.data));
+    const content = lista.length ? `<table>
+      <thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Itens</th><th>Total</th><th></th></tr></thead>
+      <tbody>${lista.map(p=>`
+        <tr>
+          <td><span class="code-tag">${esc(p.numero)}</span></td><td>${esc(p.cliente)}</td><td>${fmtDate(p.data)}</td><td>${p.itens.length}</td>
+          <td class="mono">${fmtMoney(p.total)}</td>
+          <td><div class="row-actions">
+            <button class="btn btn-ghost btn-sm" title="Imprimir" onclick="printPedido('${p.id}')">${iconPrint()} Imprimir</button>
+            ${p.status==='Pendente'?`<button class="btn btn-accent btn-sm" title="Transferir para venda" onclick="convertPedido('${p.id}')">${iconCheck()} Transformar em venda</button>`:''}
+            ${p.status==='Pendente'?`<button class="icon-btn" title="Cancelar pedido" onclick="cancelPedido('${p.id}')">${iconX()}</button>`:''}
+            <button class="icon-btn" title="Excluir" onclick="deletePedido('${p.id}')">${iconTrash()}</button>
+          </div></td>
+        </tr>`).join('')}
+      </tbody></table>` : `<div class="empty" style="padding:20px;"><p>Nenhum pedido aqui.</p></div>`;
+    return collapsiblePanel(g.key, g.titulo+' ('+lista.length+')', '', '', content);
+  }).join('');
 }
 function deletePedido(id){
   if(!confirm('Excluir este pedido?')) return;
@@ -1789,7 +1988,7 @@ function convertPedido(id){
   baixarEstoqueItens(p.itens);
   const empresaMatch = (d.empresas||[]).find(emp=>emp.nome.toLowerCase()===p.cliente.toLowerCase());
   const venda = { id: uid(), numero: nextCode('VD','vd'), pedidoId: p.id, cliente: p.cliente, empresaId: empresaMatch?empresaMatch.id:'', data: todayISO().slice(0,10),
-    itens: p.itens, formaPagamento: 'Não informado', desconto: 0, total: p.total, status: 'Concluída', statusPagamento: 'Pendente' };
+    itens: p.itens, formaPagamento: 'Não informado', desconto: 0, total: p.total, status: 'Concluída', statusPagamento: 'Pendente', entregue: false };
   d.vendas.push(venda);
   p.status = 'Concluído';
   saveWS(); renderAll();
@@ -1800,9 +1999,21 @@ let financeiroEmpresaSelecionada = '';
 function renderFinanceiro(){
   const d = cur();
   const vendasValidas = d.vendas.filter(v=>v.status!=='Cancelada');
+  const valorInvestidoTotal = d.estoque.reduce((s,x)=>s+valorInvestidoItem(x),0);
+  const totalVendasGeral = vendasValidas.reduce((s,v)=>s+v.total,0);
+  let custoVendido = 0;
+  vendasValidas.forEach(v=> v.itens.forEach(it=>{
+    const prod = d.estoque.find(p=>p.id===it.produtoId);
+    if(prod) custoVendido += it.quantidade * custoUnitarioItem(prod);
+  }));
+  const lucroObtido = totalVendasGeral - custoVendido;
+  let html = financeHtml(valorInvestidoTotal, valorInvestidoTotal, 0, totalVendasGeral, vendasValidas.length, lucroObtido);
+  html += renderFechamentoCaixa();
+
   if(!vendasValidas.length){
-    return `<div class="panel"><div class="empty"><div class="glyph">◧</div><h4>Nenhuma venda registrada ainda</h4>
+    html += `<div class="panel"><div class="empty"><div class="glyph">◧</div><h4>Nenhuma venda registrada ainda</h4>
       <p>Assim que houver vendas, elas aparecem aqui organizadas por empresa.</p></div></div>`;
+    return html;
   }
   const grupos = {};
   vendasValidas.forEach(v=>{
@@ -1818,7 +2029,7 @@ function renderFinanceiro(){
   const totalPago = vendasValidas.filter(v=>v.statusPagamento!=='Pendente').reduce((s,v)=>s+v.total,0);
   const totalPendente = totalGeral-totalPago;
 
-  let html = `<div class="kpi-grid">
+  html += `<div class="kpi-grid">
     <div class="kpi"><div class="kpi-bar"></div><div class="label">Total vendido</div><div class="value">${fmtMoney(totalGeral)}</div><div class="note">${vendasValidas.length} venda(s)</div></div>
     <div class="kpi good"><div class="kpi-bar"></div><div class="label">Recebido</div><div class="value">${fmtMoney(totalPago)}</div><div class="note">Marcado como pago</div></div>
     <div class="kpi alert"><div class="kpi-bar"></div><div class="label">Pendente</div><div class="value">${fmtMoney(totalPendente)}</div><div class="note">Ainda não recebido</div></div>
@@ -1861,6 +2072,74 @@ function renderFinanceiro(){
   return html;
 }
 function verHistoricoEmpresa(key){ financeiroEmpresaSelecionada = key; renderAll(); }
+let fechamentoMesSelecionado = '';
+function mesAtualStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function renderFechamentoCaixa(){
+  const d = cur();
+  const mesRef = fechamentoMesSelecionado || mesAtualStr();
+  const [ano, mes] = mesRef.split('-').map(Number);
+  const dentroDoMes = (dataStr)=>{ const dt = new Date(dataStr); return dt.getFullYear()===ano && (dt.getMonth()+1)===mes; };
+
+  const vendasDoMes = d.vendas.filter(v=>v.status!=='Cancelada' && dentroDoMes(v.data));
+  const comprasDoMes = (d.compras||[]).filter(c=>dentroDoMes(c.data));
+  const faturamento = vendasDoMes.reduce((s,v)=>s+v.total,0);
+  const reinvestido = comprasDoMes.reduce((s,c)=>s+c.valor,0);
+  const resultado = faturamento - reinvestido;
+  const collapsed = isColapsado('fechamento-caixa');
+
+  const nomeMes = new Date(ano, mes-1, 1).toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
+  const content = `
+    <div class="field" style="max-width:220px;"><label>Mês de referência</label><input type="month" value="${mesRef}" onchange="mudarMesFechamento(this.value)"></div>
+    <div class="kpi-grid" style="margin-top:10px;">
+      <div class="kpi"><div class="kpi-bar"></div><div class="label">Faturamento do mês</div><div class="value">${fmtMoney(faturamento)}</div><div class="note">${vendasDoMes.length} venda(s)</div></div>
+      <div class="kpi alert"><div class="kpi-bar"></div><div class="label">Reinvestido em matéria-prima</div><div class="value">${fmtMoney(reinvestido)}</div><div class="note">${comprasDoMes.length} compra(s)</div></div>
+      <div class="kpi ${resultado>=0?'good':'alert'}"><div class="kpi-bar"></div><div class="label">Resultado do mês</div><div class="value">${fmtMoney(resultado)}</div><div class="note">Faturamento − reinvestimento</div></div>
+    </div>
+    <div style="margin-top:16px;">
+      <div class="subtle" style="text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:6px;">Vendas do mês</div>
+      ${vendasDoMes.length ? `<table><thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Total</th></tr></thead>
+      <tbody>${[...vendasDoMes].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(v=>`<tr><td><span class="code-tag">${esc(v.numero)}</span></td><td>${esc(v.cliente)}</td><td>${fmtDate(v.data)}</td><td class="mono">${fmtMoney(v.total)}</td></tr>`).join('')}</tbody></table>`
+      : `<div class="empty" style="padding:16px;"><p>Nenhuma venda neste mês.</p></div>`}
+    </div>
+    <div style="margin-top:16px;">
+      <div class="subtle" style="text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:6px;">Compras de matéria-prima do mês</div>
+      ${comprasDoMes.length ? `<table><thead><tr><th>Item</th><th>Data</th><th>Quantidade</th><th>Valor</th></tr></thead>
+      <tbody>${[...comprasDoMes].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(c=>`<tr><td>${esc(c.itemNome)}</td><td>${fmtDate(c.data)}</td><td class="mono">${fmtQty(c.quantidade)} ${esc(c.unidade)}</td><td class="mono">${fmtMoney(c.valor)}</td></tr>`).join('')}</tbody></table>`
+      : `<div class="empty" style="padding:16px;"><p>Nenhuma compra registrada neste mês. Você pode informar o valor gasto ao registrar uma entrada de estoque.</p></div>`}
+    </div>
+    <button class="btn btn-accent" style="margin-top:16px;" onclick="printFechamentoCaixa('${mesRef}')">${iconPrint()} Imprimir relatório de fechamento</button>
+  `;
+  return collapsiblePanel('fechamento-caixa', 'Fechamento de Caixa', 'Faturamento, reinvestimento e resultado por mês — '+nomeMes, '', content);
+}
+function mudarMesFechamento(valor){ fechamentoMesSelecionado = valor; renderAll(); }
+function printFechamentoCaixa(mesRef){
+  const d = cur();
+  const [ano, mes] = mesRef.split('-').map(Number);
+  const dentroDoMes = (dataStr)=>{ const dt = new Date(dataStr); return dt.getFullYear()===ano && (dt.getMonth()+1)===mes; };
+  const vendasDoMes = d.vendas.filter(v=>v.status!=='Cancelada' && dentroDoMes(v.data));
+  const comprasDoMes = (d.compras||[]).filter(c=>dentroDoMes(c.data));
+  const faturamento = vendasDoMes.reduce((s,v)=>s+v.total,0);
+  const reinvestido = comprasDoMes.reduce((s,c)=>s+c.valor,0);
+  const resultado = faturamento - reinvestido;
+  const nomeMes = new Date(ano, mes-1, 1).toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
+  const body = `
+    <table><tbody>
+      <tr><td style="font-weight:600;">Faturamento do mês</td><td>${fmtMoney(faturamento)} (${vendasDoMes.length} venda(s))</td></tr>
+      <tr><td style="font-weight:600;">Reinvestido em matéria-prima</td><td>${fmtMoney(reinvestido)} (${comprasDoMes.length} compra(s))</td></tr>
+      <tr><td style="font-weight:600;">Resultado do mês</td><td>${fmtMoney(resultado)}</td></tr>
+    </tbody></table>
+    <h3 style="font-family:'Space Grotesk';margin:16px 0 6px;">Vendas do mês</h3>
+    <table><thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Total</th></tr></thead>
+    <tbody>${vendasDoMes.map(v=>`<tr><td>${esc(v.numero)}</td><td>${esc(v.cliente)}</td><td>${fmtDate(v.data)}</td><td>${fmtMoney(v.total)}</td></tr>`).join('')||'<tr><td colspan="4">Nenhuma venda</td></tr>'}</tbody></table>
+    <h3 style="font-family:'Space Grotesk';margin:16px 0 6px;">Compras de matéria-prima do mês</h3>
+    <table><thead><tr><th>Item</th><th>Data</th><th>Quantidade</th><th>Valor</th></tr></thead>
+    <tbody>${comprasDoMes.map(c=>`<tr><td>${esc(c.itemNome)}</td><td>${fmtDate(c.data)}</td><td>${fmtQty(c.quantidade)} ${esc(c.unidade)}</td><td>${fmtMoney(c.valor)}</td></tr>`).join('')||'<tr><td colspan="4">Nenhuma compra</td></tr>'}</tbody></table>`;
+  const html = `<div class="doc">${docHeadHtml('Fechamento de Caixa · '+WS_META[ws].label, nomeMes)}${body}
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+  const text = buildReceiptText('Fechamento de Caixa', nomeMes,
+    ['Faturamento: '+fmtMoney(faturamento), 'Reinvestido: '+fmtMoney(reinvestido), 'Resultado: '+fmtMoney(resultado)], [], []);
+  printDocument(html, text);
+}
 function togglePagamento(vendaId){
   const d = cur();
   const v = d.vendas.find(x=>x.id===vendaId);
@@ -1869,6 +2148,34 @@ function togglePagamento(vendaId){
   saveWS(); renderAll();
   showToast('Status de pagamento atualizado.', 'good');
 }
+function toggleEntregue(vendaId){
+  const d = cur();
+  const v = d.vendas.find(x=>x.id===vendaId);
+  if(!v) return;
+  v.entregue = v.entregue===false ? true : false;
+  saveWS(); renderAll();
+  showToast('Status de entrega atualizado.', 'good');
+}
+function subToggleHeader(key, label, count){
+  const collapsed = isColapsado(key);
+  return `<div style="display:flex;align-items:center;gap:8px;padding:10px 4px;cursor:pointer;font-weight:600;font-size:13px;color:var(--ink-soft);border-top:1px solid var(--line-soft);" onclick="togglePanel('${key}')">${chevronIcon(collapsed)} ${esc(label)} (${count})</div>`;
+}
+function vendaTableHtml(lista){
+  if(!lista.length) return `<div class="empty" style="padding:16px;"><p>Nenhuma venda aqui.</p></div>`;
+  return `<table><thead><tr><th>Nº</th><th>Data</th><th>Itens</th><th>Total</th><th>Entregue</th><th></th></tr></thead>
+    <tbody>${lista.map(v=>`
+      <tr>
+        <td><span class="code-tag">${esc(v.numero)}</span></td><td>${fmtDate(v.data)}</td><td>${v.itens.length}</td>
+        <td class="mono">${fmtMoney(v.total)}</td>
+        <td>${v.status==='Concluída'?`<button class="btn btn-sm ${v.entregue===false?'btn-ghost':'btn-accent'}" onclick="toggleEntregue('${v.id}')">${v.entregue===false?badgeHtml('warn','Não entregue'):badgeHtml('good','Entregue')}</button>`:'—'}</td>
+        <td><div class="row-actions">
+          <button class="btn btn-ghost btn-sm" title="Imprimir comprovante" onclick="printVenda('${v.id}')">${iconPrint()} Imprimir</button>
+          ${v.status==='Concluída'?`<button class="icon-btn" title="Cancelar venda" onclick="cancelVenda('${v.id}')">${iconX()}</button>`:''}
+          <button class="icon-btn" title="Excluir" onclick="deleteVenda('${v.id}')">${iconTrash()}</button>
+        </div></td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
 function renderVendas(){
   const d = cur();
   if(!d.vendas.length){
@@ -1876,20 +2183,29 @@ function renderVendas(){
       <p>Registre uma venda avulsa ou transfira um pedido pronto para vendas.</p>
       <button class="btn btn-accent" onclick="openVendaForm()">${iconPlus()} Nova venda</button></div></div>`;
   }
-  return `<div class="panel"><table>
-    <thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Itens</th><th>Total</th><th>Status</th><th>Pagamento</th><th></th></tr></thead>
-    <tbody>${[...d.vendas].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(v=>`
-      <tr>
-        <td><span class="code-tag">${esc(v.numero)}</span></td><td>${esc(v.cliente)}</td><td>${fmtDate(v.data)}</td><td>${v.itens.length}</td>
-        <td class="mono">${fmtMoney(v.total)}</td><td>${statusBadge(v.status)}</td>
-        <td>${v.status==='Concluída'?`<button class="btn btn-sm ${v.statusPagamento==='Pendente'?'btn-ghost':'btn-accent'}" onclick="togglePagamento('${v.id}')">${v.statusPagamento==='Pendente'?badgeHtml('warn','Pendente'):badgeHtml('good','Pago')}</button>`:'—'}</td>
-        <td><div class="row-actions">
-          <button class="btn btn-ghost btn-sm" title="Imprimir comprovante" onclick="printVenda('${v.id}')">${iconPrint()} Imprimir</button>
-          ${v.status==='Concluída'?`<button class="icon-btn" title="Cancelar venda" onclick="cancelVenda('${v.id}')">${iconX()}</button>`:''}
-          <button class="icon-btn" title="Excluir" onclick="deleteVenda('${v.id}')">${iconTrash()}</button>
-        </div></td>
-      </tr>`).join('')}
-    </tbody></table></div>`;
+  const gruposEmp = {};
+  (d.empresas||[]).forEach(e=>{ gruposEmp[e.id] = { key:e.id, nome:e.nome, vendas:[] }; });
+  const semEmpresa = { key:'__sem__', nome:'Sem empresa definida', vendas:[] };
+  d.vendas.forEach(v=>{
+    if(v.empresaId && gruposEmp[v.empresaId]) gruposEmp[v.empresaId].vendas.push(v);
+    else semEmpresa.vendas.push(v);
+  });
+  const grupos = Object.values(gruposEmp).sort((a,b)=>a.nome.localeCompare(b.nome));
+  if(semEmpresa.vendas.length) grupos.push(semEmpresa);
+
+  return grupos.map(g=>{
+    const concluidas = g.vendas.filter(v=>v.status==='Concluída').sort((a,b)=>new Date(b.data)-new Date(a.data));
+    const canceladas = g.vendas.filter(v=>v.status==='Cancelada').sort((a,b)=>new Date(b.data)-new Date(a.data));
+    const total = concluidas.reduce((s,v)=>s+v.total,0);
+    const sub = g.vendas.length ? `${concluidas.length} concluída(s) · ${canceladas.length} cancelada(s) · Total: ${fmtMoney(total)}` : 'Nenhuma venda ainda';
+    const content = `
+      ${subToggleHeader('vendas-'+g.key+'-concl', 'Vendas Concluídas', concluidas.length)}
+      ${isColapsado('vendas-'+g.key+'-concl') ? '' : vendaTableHtml(concluidas)}
+      ${subToggleHeader('vendas-'+g.key+'-canc', 'Vendas Canceladas', canceladas.length)}
+      ${isColapsado('vendas-'+g.key+'-canc') ? '' : vendaTableHtml(canceladas)}
+    `;
+    return collapsiblePanel('vendas-emp-'+g.key, esc(g.nome), sub, '', content);
+  }).join('');
 }
 function deleteVenda(id){
   if(!confirm('Excluir esta venda?')) return;
@@ -1950,7 +2266,7 @@ function saveVenda(e){
   const statusPagEl = document.getElementById('f_statuspagamento');
   const venda = { id: uid(), numero: nextCode('VD','vd'), pedidoId: null, cliente: clienteNome, empresaId: empresaMatch?empresaMatch.id:'',
     data: document.getElementById('f_data').value, formaPagamento: document.getElementById('f_pagamento').value,
-    desconto, itens, total: Math.max(0,subtotal-desconto), status:'Concluída', statusPagamento: statusPagEl?statusPagEl.value:'Pago' };
+    desconto, itens, total: Math.max(0,subtotal-desconto), status:'Concluída', statusPagamento: statusPagEl?statusPagEl.value:'Pago', entregue: true };
   baixarEstoqueItens(itensValidos);
   d.vendas.push(venda);
   closeModal(); saveWS(); renderAll();
@@ -2147,7 +2463,7 @@ function printEstoque(filtro){
       body += `<h3 style="font-family:'Space Grotesk';margin-bottom:6px;">Ribbons</h3>
       <table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Qtd</th><th>Mín.</th><th>Custo/m</th><th>Valor total</th></tr></thead>
       <tbody>${ribbons.map(m=>`<tr><td>${esc(m.codigo)}</td><td>${esc(m.nome)}</td><td>${esc(m.tipoRibbon)}</td><td>${fmtQty(m.quantidade)} ${esc(m.unidade)}</td><td>${fmtQty(m.estoqueMinimo)}</td><td>${fmtMoney(m.preco)}</td><td>${fmtMoney(m.quantidade*m.preco)}</td></tr>`).join('')||'<tr><td colspan="7">Nenhum item</td></tr>'}</tbody></table>
-      <h3 style="font-family:'Space Grotesk';margin-bottom:6px;margin-top:20px;">Matéria-Prima (Tags e Etiquetas de Composição em branco)</h3>
+      <h3 style="font-family:'Space Grotesk';margin-bottom:6px;margin-top:20px;">Tags em Branco (matéria-prima, inclui Etiquetas de Composição)</h3>
       <table><thead><tr><th>Código</th><th>Nome</th><th>Tamanho</th><th>Rolos</th><th>Unidades</th><th>Custo/rolo</th><th>Valor total</th></tr></thead>
       <tbody>${tagMPs.map(p=>{const tam=tamanhoObj(p.tamanhoId);return `<tr><td>${esc(p.codigo)}</td><td>${esc(p.nome)}</td><td>${esc(tam?tam.nome:'—')}</td><td>${fmtQty(p.quantidade)}</td><td>${fmtQty(tagEtiquetasDisponiveis(p))}</td><td>${fmtMoney(p.custo)}</td><td>${fmtMoney(p.quantidade*p.custo)}</td></tr>`;}).join('')||'<tr><td colspan="7">Nenhum item</td></tr>'}</tbody></table>`;
     }
