@@ -919,9 +919,12 @@ function composicaoInfoHtml(tam, empresaId){
   const linhas = [];
   if(tam.composicaoTexto) linhas.push(tam.composicaoTexto);
   if(emp && emp.cnpj) linhas.push('CNPJ: '+emp.cnpj);
-  if((tam.recomendacoes||[]).length) linhas.push((tam.recomendacoes||[]).join(' · '));
-  if(!linhas.length) return '';
-  return `<div class="subtle" style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--line);">${linhas.map(l=>esc(l)).join('<br>')}</div>`;
+  const textoHtml = linhas.length ? linhas.map(l=>esc(l)).join('<br>') : '';
+  const iconsHtml = (tam.recomendacoes||[]).length
+    ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;color:var(--ink-soft);">${tam.recomendacoes.map(r=>`<span title="${esc(r)}">${iconCuidado(r,16)}</span>`).join('')}</div>`
+    : '';
+  if(!textoHtml && !iconsHtml) return '';
+  return `<div class="subtle" style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--line);">${textoHtml}${iconsHtml}</div>`;
 }
 function tagMpCardHtml(it){
   const tam = tamanhoObj(it.tamanhoId);
@@ -1610,6 +1613,30 @@ const RECOMENDACOES_LAVAGEM = [
   'Passar a ferro (baixa temperatura)','Passar a ferro (média temperatura)','Passar a ferro (alta temperatura)','Não passar a ferro',
   'Não lavar a seco','Lavagem a seco permitida'
 ];
+function iconCuidado(nome, size){
+  size = size || 18;
+  const s = `width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"`;
+  const basin = `<path d="M4 9h16l-1.4 9.7A2 2 0 0117 20.5H7A2 2 0 015.4 18.7L4 9z"/><path d="M2.5 9h19"/><path d="M8 13.2c1-1 2-1 3 0s2 1 3 0 2-1 3 0"/>`;
+  const iron = `<path d="M4 18h12.5A3.5 3.5 0 0020 14.5c0-3.3-3-6.5-7.3-6.5H9a5 5 0 00-5 5V18z"/><path d="M4 18h13"/>`;
+  const map = {
+    'Lavar à mão': `<svg ${s}>${basin}<text x="12" y="12" font-size="6.2" text-anchor="middle" stroke="none" fill="currentColor">MÃO</text></svg>`,
+    'Lavar a 30°C': `<svg ${s}>${basin}<text x="12" y="12.5" font-size="7.5" text-anchor="middle" stroke="none" fill="currentColor">30</text></svg>`,
+    'Lavar a 40°C': `<svg ${s}>${basin}<text x="12" y="12.5" font-size="7.5" text-anchor="middle" stroke="none" fill="currentColor">40</text></svg>`,
+    'Lavar a 60°C': `<svg ${s}>${basin}<text x="12" y="12.5" font-size="7.5" text-anchor="middle" stroke="none" fill="currentColor">60</text></svg>`,
+    'Não usar alvejante': `<svg ${s}><path d="M12 3l9 16.5H3L12 3z"/><path d="M8.3 9.5l7.4 7.5M15.7 9.5l-7.4 7.5"/></svg>`,
+    'Pode usar alvejante': `<svg ${s}><path d="M12 3l9 16.5H3L12 3z"/></svg>`,
+    'Não usar secadora': `<svg ${s}><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="12" cy="12" r="5"/><path d="M3.5 3.5l17 17"/></svg>`,
+    'Secar à sombra': `<svg ${s}><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="12" cy="9.5" r="2.6"/><path d="M6 17h12"/></svg>`,
+    'Não torcer': `<svg ${s}><circle cx="12" cy="12" r="9"/><path d="M7.5 9.5c1.7 3 7.3 3 9 0M7.5 14.5c1.7-3 7.3-3 9 0"/><path d="M3.5 3.5l17 17"/></svg>`,
+    'Passar a ferro (baixa temperatura)': `<svg ${s}>${iron}<circle cx="9.5" cy="14.7" r="0.8" fill="currentColor" stroke="none"/></svg>`,
+    'Passar a ferro (média temperatura)': `<svg ${s}>${iron}<circle cx="8.7" cy="14.7" r="0.8" fill="currentColor" stroke="none"/><circle cx="11.3" cy="14.7" r="0.8" fill="currentColor" stroke="none"/></svg>`,
+    'Passar a ferro (alta temperatura)': `<svg ${s}>${iron}<circle cx="8" cy="14.7" r="0.8" fill="currentColor" stroke="none"/><circle cx="10.5" cy="14.7" r="0.8" fill="currentColor" stroke="none"/><circle cx="13" cy="14.7" r="0.8" fill="currentColor" stroke="none"/></svg>`,
+    'Não passar a ferro': `<svg ${s}>${iron}<path d="M3.5 6l17 14"/></svg>`,
+    'Não lavar a seco': `<svg ${s}><circle cx="12" cy="12" r="9"/><path d="M3.5 3.5l17 17"/></svg>`,
+    'Lavagem a seco permitida': `<svg ${s}><circle cx="12" cy="12" r="9"/><text x="12" y="15.5" font-size="9.5" text-anchor="middle" stroke="none" fill="currentColor">P</text></svg>`,
+  };
+  return map[nome] || `<svg ${s}><circle cx="12" cy="12" r="9"/></svg>`;
+}
 function openTamanhoForm(id){
   editingId = id || null;
   const isEtq = ws==='etiquetag';
@@ -1635,7 +1662,7 @@ function openTamanhoForm(id){
           <div class="field"><label>Composição têxtil</label><input id="f_composicaotexto" value="${esc(t.composicaoTexto||'')}" placeholder="Ex.: 61% Algodão, 39% Poliéster"></div>
           <div class="field"><label>Recomendações (pode marcar mais de uma)</label>
             <div class="radio-row" style="flex-direction:column;align-items:flex-start;gap:8px;max-height:220px;overflow-y:auto;">
-              ${RECOMENDACOES_LAVAGEM.map(r=>`<label><input type="checkbox" value="${esc(r)}" class="f_recomendacao" ${(t.recomendacoes||[]).includes(r)?'checked':''} style="width:auto;margin-right:6px;">${esc(r)}</label>`).join('')}
+              ${RECOMENDACOES_LAVAGEM.map(r=>`<label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" value="${esc(r)}" class="f_recomendacao" ${(t.recomendacoes||[]).includes(r)?'checked':''} style="width:auto;margin:0;">${iconCuidado(r,20)}<span>${esc(r)}</span></label>`).join('')}
             </div>
           </div>
           <p class="hint">O CNPJ que aparece na etiqueta vem do cadastro da empresa vinculada ao produto.</p>
@@ -2492,20 +2519,20 @@ function composicaoLineText(i){
   const partes = [];
   if(tam.composicaoTexto) partes.push(tam.composicaoTexto);
   if(emp && emp.cnpj) partes.push('CNPJ: '+emp.cnpj);
-  if((tam.recomendacoes||[]).length) partes.push((tam.recomendacoes||[]).join(', '));
-  return partes.join(' · ');
+  return { texto: partes.join(' · '), recomendacoes: tam.recomendacoes||[] };
 }
 function itensTableHtml(itens){
   const temRef = itens.some(i=>i.referencia||i.descricaoRef);
   const table = `<table><thead><tr><th>Item</th>${temRef?'<th>Referência</th><th>Descrição</th>':''}<th>Qtd</th><th>Preço unit.</th><th>Subtotal</th></tr></thead>
-  <tbody>${itens.map(i=>{ const compTxt = composicaoLineText(i);
-    return `<tr><td>${esc(i.nome)}${compTxt?`<br><span style="font-size:9.5px;color:#555;">${esc(compTxt)}</span>`:''}</td>${temRef?`<td>${esc(i.referencia||'—')}</td><td>${esc(i.descricaoRef||'—')}</td>`:''}<td>${fmtQty(i.quantidade)} ${esc(i.unidade||'')}</td><td>${fmtMoney(i.precoUnit)}</td><td>${fmtMoney(i.subtotal)}</td></tr>`;
+  <tbody>${itens.map(i=>{ const comp = composicaoLineText(i);
+    const compHtml = comp ? `<br><span style="font-size:9.5px;color:#555;">${esc(comp.texto)}</span>${comp.recomendacoes.length?`<div style="display:flex;gap:4px;margin-top:3px;color:#333;">${comp.recomendacoes.map(r=>iconCuidado(r,13)).join('')}</div>`:''}` : '';
+    return `<tr><td>${esc(i.nome)}${compHtml}</td>${temRef?`<td>${esc(i.referencia||'—')}</td><td>${esc(i.descricaoRef||'—')}</td>`:''}<td>${fmtQty(i.quantidade)} ${esc(i.unidade||'')}</td><td>${fmtMoney(i.precoUnit)}</td><td>${fmtMoney(i.subtotal)}</td></tr>`;
   }).join('')}</tbody></table>`;
-  const lines = `<div class="doc-lines">${itens.map(i=>{ const compTxt = composicaoLineText(i);
+  const lines = `<div class="doc-lines">${itens.map(i=>{ const comp = composicaoLineText(i);
     return `
     <div class="line"><span>${esc(i.nome)}</span><span></span></div>
     ${(i.referencia||i.descricaoRef)?`<div class="line"><span>Ref: ${esc(i.referencia||'—')} — ${esc(i.descricaoRef||'')}</span><span></span></div>`:''}
-    ${compTxt?`<div class="line"><span>${esc(compTxt)}</span><span></span></div>`:''}
+    ${comp?`<div class="line"><span>${esc(comp.texto)}</span><span></span></div>`:''}
     <div class="line"><span>${fmtQty(i.quantidade)} ${esc(i.unidade||'')} x ${fmtMoney(i.precoUnit)}</span><span>${fmtMoney(i.subtotal)}</span></div>`;
   }).join('')}</div>`;
   return table+lines;
