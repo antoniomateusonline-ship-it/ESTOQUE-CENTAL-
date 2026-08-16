@@ -375,6 +375,8 @@ function migrateIfNeeded(wsKey, raw){
     if(it.empresaId===undefined) it.empresaId = '';
     if(it.categoriaTag===undefined) it.categoriaTag = 'Tag';
     if(it.cor===undefined) it.cor = '';
+    if(it.composicaoId===undefined) it.composicaoId = '';
+    if(it.recPadraoId===undefined) it.recPadraoId = '';
     if(it.metrosPorRolo===undefined) it.metrosPorRolo = it.tipo==='Ribbon' ? 300 : 0;
   });
   if(wsKey==='etiquetag' && !raw._migradoParaUnidades){
@@ -408,6 +410,7 @@ function migrateIfNeeded(wsKey, raw){
       t.composicoes.forEach(p=>{ if(!p.id) p.id = uid(); if(!p.fibras) p.fibras = []; });
       delete t.composicaoTexto;
       if(!t.recomendacoes) t.recomendacoes = [];
+      if(!t.precosPorRibbon) t.precosPorRibbon = t.composicao ? {Cera:t.precoMilheiro||0, 'Têxtil':t.precoMilheiro||0, Misto:t.precoMilheiro||0} : {Cera:0,'Têxtil':0,Misto:0};
     });
   }
   if(!raw.seq.tm) raw.seq.tm = 1;
@@ -1418,7 +1421,7 @@ function openProducaoModal(tagMpId){
   const tam = tamanhoObj(mp.tamanhoId);
   const numeracoes = d.numeracoes||[];
   const pedidosRelacionados = d.pedidos.filter(p=>p.status==='Pendente' && p.itens.some(it=>it.tamanhoId===mp.tamanhoId));
-  producaoItens = [{empresaId:'', numeracaoId: numeracoes[0]?numeracoes[0].id:'', referenciaId:'', ribbonId:'', quantidade:'', precoMilheiro: tam&&tam.precoMilheiro?tam.precoMilheiro:''}];
+  producaoItens = [{empresaId:'', numeracaoId: numeracoes[0]?numeracoes[0].id:'', referenciaId:'', ribbonId:'', quantidade:'', precoMilheiro: tam&&!tam.composicao&&tam.precoMilheiro?tam.precoMilheiro:'', composicaoId:'', recPadraoId:''}];
   openModal(`
     <div class="modal-head"><h3>Produzir · ${esc(mp.nome)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <form onsubmit="saveProducao(event,'${tagMpId}')">
@@ -1437,6 +1440,31 @@ function openProducaoModal(tagMpId){
     </form>`);
   renderProducaoItensBody(tagMpId);
 }
+function composicaoProducaoBlockHtml(idx, item, tam, tagMpId){
+  if(!tam || !tam.composicao) return '';
+  const perfis = tam.composicoes||[];
+  const emp = empresaObj(item.empresaId);
+  const perfisRec = emp ? (emp.recomendacoesPadroes||[]) : [];
+  let html = '<div class="field-row">';
+  html += `<div class="field"><label>Composição têxtil</label><select onchange="updateProducaoItem(${idx},'composicaoId',this.value,'${tagMpId}')">
+    <option value="">Selecione</option>
+    ${perfis.map(p=>`<option value="${p.id}" ${item.composicaoId===p.id?'selected':''}>${esc(formatComposicoes(p.fibras))}</option>`).join('')}
+  </select></div>`;
+  if(perfisRec.length){
+    html += `<div class="field"><label>Padrão de recomendações</label><select onchange="updateProducaoItem(${idx},'recPadraoId',this.value,'${tagMpId}')">
+      <option value="">Selecione</option>
+      ${perfisRec.map(p=>`<option value="${p.id}" ${item.recPadraoId===p.id?'selected':''}>${esc(p.nome)}</option>`).join('')}
+    </select></div>`;
+  }
+  html += '</div>';
+  const recs = perfisRec.length ? (perfisRec.find(p=>p.id===item.recPadraoId)||{}).recomendacoes||[] : (tam.recomendacoes||[]);
+  if(!perfisRec.length && recs.length){
+    html += `<div class="subtle" style="margin:2px 0 8px;">Recomendações do modelo: <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">${recs.map(r=>`<span title="${esc(r)}">${iconCuidado(r,16)}</span>`).join('')}</div></div>`;
+  } else if(recs.length){
+    html += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 8px;">${recs.map(r=>`<span title="${esc(r)}">${iconCuidado(r,16)}</span>`).join('')}</div>`;
+  }
+  return html;
+}
 function producaoItemRowHtml(idx, item, tagMpId){
   const d = cur();
   const empresasCatalog = d.empresas||[];
@@ -1444,6 +1472,9 @@ function producaoItemRowHtml(idx, item, tagMpId){
   const ribbons = d.estoque.filter(x=>x.tipo==='Ribbon');
   const referencias = allReferenciasList();
   const subtotalQtd = parseFloat(item.quantidade)||0;
+  const mp = d.estoque.find(x=>x.id===tagMpId);
+  const tam = mp ? tamanhoObj(mp.tamanhoId) : null;
+  const isComposicao = !!(tam && tam.composicao);
   return `<div class="panel" style="margin-bottom:10px;padding:14px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <strong style="font-size:12.5px;color:var(--ink-soft);text-transform:uppercase;letter-spacing:.03em;">Item ${idx+1}</strong>
@@ -1460,23 +1491,39 @@ function producaoItemRowHtml(idx, item, tagMpId){
     ${referencias.length?`<div class="field"><label>Referência (opcional)</label><select onchange="updateProducaoItem(${idx},'referenciaId',this.value,'${tagMpId}')">
       <option value="">Nenhuma</option>${referencias.map(r=>`<option value="${r.id}" ${item.referenciaId===r.id?'selected':''}>${esc(r.empresaNome)} · ${esc(r.codigo)}</option>`).join('')}
     </select></div>`:''}
+    ${isComposicao ? composicaoProducaoBlockHtml(idx, item, tam, tagMpId) : ''}
     <div class="field-row">
       <div class="field"><label>Ribbon</label><select onchange="updateProducaoItem(${idx},'ribbonId',this.value,'${tagMpId}')">
         <option value="">Não descontar</option>${ribbons.map(r=>`<option value="${r.id}" ${item.ribbonId===r.id?'selected':''}>${esc(r.nome)} (${esc(r.tipoRibbon)})</option>`).join('')}
       </select></div>
       <div class="field"><label>Quantidade</label><input type="number" step="0.001" min="0.001" value="${item.quantidade}" placeholder="Ex: 200" onchange="updateProducaoItem(${idx},'quantidade',this.value,'${tagMpId}')"></div>
     </div>
-    <div class="field"><label>Valor de venda do milheiro (R$)</label><input type="number" step="0.001" min="0" value="${item.precoMilheiro}" placeholder="Ex: 25.00" onchange="updateProducaoItem(${idx},'precoMilheiro',this.value,'${tagMpId}')"></div>
+    <div class="field"><label>Valor de venda do milheiro (R$)</label><input type="number" step="0.001" min="0" value="${item.precoMilheiro}" placeholder="Ex: 25.00" onchange="updateProducaoItem(${idx},'precoMilheiro',this.value,'${tagMpId}')">
+      ${isComposicao?`<p class="hint">Preenchido automaticamente conforme o ribbon escolhido acima — pode ajustar se precisar.</p>`:''}</div>
     <div class="subtle" style="text-align:right;">Subtotal: ${fmtQty(subtotalQtd)} un.</div>
   </div>`;
 }
 function addProducaoItem(tagMpId){
   const d = cur(); const numeracoes = d.numeracoes||[]; const tam = tamanhoObj(d.estoque.find(x=>x.id===tagMpId).tamanhoId);
-  producaoItens.push({empresaId:'', numeracaoId: numeracoes[0]?numeracoes[0].id:'', referenciaId:'', ribbonId:'', quantidade:'', precoMilheiro: tam&&tam.precoMilheiro?tam.precoMilheiro:''});
+  producaoItens.push({empresaId:'', numeracaoId: numeracoes[0]?numeracoes[0].id:'', referenciaId:'', ribbonId:'', quantidade:'', precoMilheiro: tam&&!tam.composicao&&tam.precoMilheiro?tam.precoMilheiro:'', composicaoId:'', recPadraoId:''});
   renderProducaoItensBody(tagMpId);
 }
 function removeProducaoItem(idx, tagMpId){ producaoItens.splice(idx,1); renderProducaoItensBody(tagMpId); }
-function updateProducaoItem(idx, field, value, tagMpId){ producaoItens[idx][field] = value; renderProducaoItensBody(tagMpId); }
+function updateProducaoItem(idx, field, value, tagMpId){
+  producaoItens[idx][field] = value;
+  if(field==='ribbonId'){
+    const d = cur();
+    const mp = d.estoque.find(x=>x.id===tagMpId);
+    const tam = mp ? tamanhoObj(mp.tamanhoId) : null;
+    if(tam && tam.composicao){
+      const ribbon = value ? d.estoque.find(x=>x.id===value) : null;
+      const tipo = ribbon ? ribbon.tipoRibbon : '';
+      producaoItens[idx].precoMilheiro = (tam.precosPorRibbon && tipo) ? (tam.precosPorRibbon[tipo]||0) : 0;
+    }
+  }
+  if(field==='empresaId'){ producaoItens[idx].recPadraoId = ''; }
+  renderProducaoItensBody(tagMpId);
+}
 function renderProducaoItensBody(tagMpId){
   const body = document.getElementById('producaoItensBody');
   if(!body) return;
@@ -1499,7 +1546,7 @@ function carregarItensDoPedido(pedidoId, tagMpId){
       const found = allReferenciasList().find(r=>r.codigo===it.referencia);
       if(found) referenciaId = found.id;
     }
-    return { empresaId: it.empresaId||'', numeracaoId: it.numeracaoId||'', referenciaId, ribbonId:'', quantidade: it.quantidade, precoMilheiro: it.precoUnit?it.precoUnit*1000:'' };
+    return { empresaId: it.empresaId||'', numeracaoId: it.numeracaoId||'', referenciaId, ribbonId:'', quantidade: it.quantidade, precoMilheiro: it.precoUnit?it.precoUnit*1000:'', composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'' };
   });
   renderProducaoItensBody(tagMpId);
 }
@@ -1539,15 +1586,19 @@ function saveProducao(e, tagMpId){
       pronto.custo = custoMedio;
       if(it.ribbonId) pronto.ribbonId = it.ribbonId;
       if(precoMilheiro>0) pronto.preco = precoMilheiro;
+      if(it.composicaoId) pronto.composicaoId = it.composicaoId;
+      if(it.recPadraoId) pronto.recPadraoId = it.recPadraoId;
     } else {
       pronto = { id: uid(), codigo: nextCode('TG','tg'), nome: mp.nome, tipo:'Tag', tipoRibbon:'',
         tamanhoId: mp.tamanhoId, categoriaTag: mp.categoriaTag, numeracaoId: it.numeracaoId||'', empresaId: it.empresaId||'', ribbonId: it.ribbonId||'', fornecedor:'', metrosPorRolo:0,
+        composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'',
         quantidade, unidade:'un', estoqueMinimo:0, custo:custoNovoUn, margem:0, preco:precoMilheiro, vendavel:true };
       d.estoque.push(pronto);
     }
     const refInfo = it.referenciaId ? allReferenciasList().find(r=>r.id===it.referenciaId) : null;
     d.producoes.push({ id: uid(), data: todayISO(), responsavel, tamanhoId: mp.tamanhoId, numeracaoId: it.numeracaoId||'', empresaId: it.empresaId||'',
-      quantidade, metrosRibbon, ribbonId: it.ribbonId||'', tagProntoId: pronto.id, referencia: refInfo?refInfo.codigo:'', descricaoRef: refInfo?refInfo.descricao:'', pedidoId:'' });
+      quantidade, metrosRibbon, ribbonId: it.ribbonId||'', tagProntoId: pronto.id, referencia: refInfo?refInfo.codigo:'', descricaoRef: refInfo?refInfo.descricao:'', pedidoId:'',
+      composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'' });
   });
   closeModal(); saveWS(); renderAll();
   showToast('Produção registrada! '+fmtQty(totalQuantidade)+' un. em '+itensValidos.length+' item(ns).', 'good');
@@ -1800,8 +1851,9 @@ function openTamanhoForm(id){
   editingId = id || null;
   const isEtq = ws==='etiquetag';
   const d = cur();
-  const t = id ? d.tamanhos.find(x=>x.id===id) : {nome:'',dimensao:'',unidadesPorRolo:0,passoMm:0,etiquetasPorMetroManual:0,precoMilheiro:0,composicao:false,composicoes:[],recomendacoes:[]};
+  const t = id ? d.tamanhos.find(x=>x.id===id) : {nome:'',dimensao:'',unidadesPorRolo:0,passoMm:0,etiquetasPorMetroManual:0,precoMilheiro:0,composicao:false,composicoes:[],recomendacoes:[],precosPorRibbon:{Cera:0,'Têxtil':0,Misto:0}};
   tempComposicoes = JSON.parse(JSON.stringify(t.composicoes||[]));
+  const ppr = t.precosPorRibbon || {Cera:0,'Têxtil':0,Misto:0};
   openModal(`
     <div class="modal-head"><h3>${id?'Editar':'Novo'} ${isEtq?'modelo':'tamanho'}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <form onsubmit="saveTamanho(event)">
@@ -1815,10 +1867,18 @@ function openTamanhoForm(id){
           <div class="field"><label>Etiquetas/metro (se souber, opcional)</label><input type="number" step="0.001" min="0" id="f_epm" value="${t.etiquetasPorMetroManual}"></div>
         </div>
         <p class="hint">O passo é a altura da etiqueta + o espaço entre etiquetas no rolo. Esses valores definem quanto ribbon é consumido por etiqueta.</p>
-        <div class="field"><label>Valor de venda por milheiro (R$)</label><input type="number" step="0.001" min="0" id="f_precomilheiro" value="${t.precoMilheiro||0}"></div>
-        <p class="hint">Esse é o preço de referência deste produto — aparece automaticamente ao selecioná-lo num pedido ou ao produzir, mas pode ser ajustado caso a caso.</p>
+        <div class="field" id="precoMilheiroWrap" style="display:${t.composicao?'none':'block'}"><label>Valor de venda por milheiro (R$)</label><input type="number" step="0.001" min="0" id="f_precomilheiro" value="${t.precoMilheiro||0}"></div>
+        <p class="hint" id="precoMilheiroHint" style="display:${t.composicao?'none':'block'}">Esse é o preço de referência deste produto — aparece automaticamente ao selecioná-lo num pedido ou ao produzir, mas pode ser ajustado caso a caso.</p>
         <div class="field"><label><input type="checkbox" id="f_composicao" ${t.composicao?'checked':''} onchange="toggleComposicaoFields()" style="width:auto;margin-right:6px;"> Este modelo é uma Etiqueta de Composição</label></div>
         <div id="composicaoFields" style="display:${t.composicao?'block':'none'}">
+          <div class="field"><label>Valor de venda por milheiro (R$), conforme o ribbon usado</label>
+            <p class="hint" style="margin-top:0;">O custo/preço muda conforme o tipo de ribbon usado na produção — defina um valor para cada.</p>
+            <div class="field-row">
+              <div class="field"><label>Ribbon de Cera</label><input type="number" step="0.001" min="0" id="f_precocera" value="${ppr.Cera||0}"></div>
+              <div class="field"><label>Ribbon Têxtil</label><input type="number" step="0.001" min="0" id="f_precotextil" value="${ppr['Têxtil']||0}"></div>
+              <div class="field"><label>Ribbon Misto</label><input type="number" step="0.001" min="0" id="f_precomisto" value="${ppr.Misto||0}"></div>
+            </div>
+          </div>
           <div class="field"><label>Composições têxteis cadastradas</label>
             <p class="hint" style="margin-top:0;">Se esse modelo é usado para mais de um tipo de tecido, cadastre uma composição para cada — na hora do pedido você escolhe qual se aplica.</p>
             <div id="composicoesBody"></div>
@@ -1860,7 +1920,12 @@ function updateFibraField(pIdx, fIdx, field, value){ tempComposicoes[pIdx].fibra
 function toggleComposicaoFields(){
   const box = document.getElementById('f_composicao');
   const wrap = document.getElementById('composicaoFields');
-  if(wrap) wrap.style.display = box && box.checked ? 'block' : 'none';
+  const precoWrap = document.getElementById('precoMilheiroWrap');
+  const precoHint = document.getElementById('precoMilheiroHint');
+  const isComp = box && box.checked;
+  if(wrap) wrap.style.display = isComp ? 'block' : 'none';
+  if(precoWrap) precoWrap.style.display = isComp ? 'none' : 'block';
+  if(precoHint) precoHint.style.display = isComp ? 'none' : 'block';
 }
 function saveTamanho(e){
   e.preventDefault();
@@ -1873,6 +1938,11 @@ function saveTamanho(e){
     etiquetasPorMetroManual: isEtq ? (parseFloat(document.getElementById('f_epm').value)||0) : 0,
     precoMilheiro: isEtq ? (parseFloat(document.getElementById('f_precomilheiro').value)||0) : 0,
     composicao: isEtq && composicaoEl ? composicaoEl.checked : false,
+    precosPorRibbon: isEtq ? {
+      Cera: parseFloat((document.getElementById('f_precocera')||{}).value)||0,
+      'Têxtil': parseFloat((document.getElementById('f_precotextil')||{}).value)||0,
+      Misto: parseFloat((document.getElementById('f_precomisto')||{}).value)||0,
+    } : {Cera:0,'Têxtil':0,Misto:0},
     composicoes: isEtq ? tempComposicoes.map(p=>({id:p.id||uid(), fibras:(p.fibras||[]).filter(f=>f.fibra&&f.fibra.trim()).map(f=>({percentual:(f.percentual||'').trim(), fibra:f.fibra.trim()}))})).filter(p=>p.fibras.length) : [],
     recomendacoes: isEtq ? Array.from(document.querySelectorAll('.f_recomendacao:checked')).map(el=>el.value) : [] };
   const d = cur();
@@ -2250,10 +2320,10 @@ function updateItem(idx, field, value){
     formItens[idx].produtoId = value;
     formItens[idx].precoUnit = prod ? (isTagProntoEtq(prod) ? prod.preco/1000 : prod.preco) : 0;
     const tam = prod ? tamanhoObj(prod.tamanhoId) : null;
-    formItens[idx].composicaoId = (tam && tam.composicao && (tam.composicoes||[]).length===1) ? tam.composicoes[0].id : '';
+    formItens[idx].composicaoId = prod && prod.composicaoId ? prod.composicaoId : ((tam && tam.composicao && (tam.composicoes||[]).length===1) ? tam.composicoes[0].id : '');
     const emp = prod ? empresaObj(prod.empresaId) : null;
     const perfisRec = emp ? (emp.recomendacoesPadroes||[]) : [];
-    formItens[idx].recPadraoId = perfisRec.length===1 ? perfisRec[0].id : '';
+    formItens[idx].recPadraoId = prod && prod.recPadraoId ? prod.recPadraoId : (perfisRec.length===1 ? perfisRec[0].id : '');
   } else if(field==='numeracaoId'){ formItens[idx].numeracaoId = value; }
   else if(field==='quantidade'){ formItens[idx].quantidade = parseFloat(value)||0; }
   else if(field==='precoUnit'){ formItens[idx].precoUnit = parseFloat(value)||0; }
