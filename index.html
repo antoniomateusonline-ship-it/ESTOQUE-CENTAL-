@@ -329,7 +329,14 @@ function migrateIfNeeded(wsKey, raw){
   if(!raw.ribbonDescricoes) raw.ribbonDescricoes = [];
   if(!raw.compras) raw.compras = [];
   if(!raw.estoque) raw.estoque = [];
-  raw.empresas.forEach(e=>{ if(!e.referencias) e.referencias = []; e.referencias.forEach(r=>{ if(!r.id) r.id = uid(); }); if(e.cnpj===undefined) e.cnpj = ''; if(e.usaRecomendacoesPadrao===undefined) e.usaRecomendacoesPadrao = false; if(!e.recomendacoesPadrao) e.recomendacoesPadrao = []; });
+  raw.empresas.forEach(e=>{
+    if(!e.referencias) e.referencias = []; e.referencias.forEach(r=>{ if(!r.id) r.id = uid(); });
+    if(e.cnpj===undefined) e.cnpj = '';
+    if(!e.recomendacoesPadroes){
+      e.recomendacoesPadroes = (e.usaRecomendacoesPadrao && (e.recomendacoesPadrao||[]).length) ? [{id:uid(), nome:'Padrão', recomendacoes:e.recomendacoesPadrao}] : [];
+    }
+    delete e.usaRecomendacoesPadrao; delete e.recomendacoesPadrao;
+  });
   if(!raw.vendas) raw.vendas = [];
   raw.vendas.forEach(v=>{
     if(!v.statusPagamento) v.statusPagamento = 'Pago';
@@ -925,9 +932,14 @@ function ribbonCardHtml(it){
     </div>
   </div>`;
 }
-function recomendacoesEfetivas(tam, empresaId){
+function recomendacoesEfetivas(tam, empresaId, recPadraoId){
   const emp = empresaObj(empresaId);
-  if(emp && emp.usaRecomendacoesPadrao && (emp.recomendacoesPadrao||[]).length) return emp.recomendacoesPadrao;
+  const perfis = emp ? (emp.recomendacoesPadroes||[]) : [];
+  if(perfis.length===1) return perfis[0].recomendacoes||[];
+  if(perfis.length>1){
+    const escolhido = perfis.find(p=>p.id===recPadraoId);
+    return escolhido ? (escolhido.recomendacoes||[]) : [];
+  }
   return (tam && tam.recomendacoes) || [];
 }
 function formatComposicoes(composicoes){
@@ -945,8 +957,10 @@ function composicaoInfoHtml(tam, empresaId){
   if(perfis.length===1) linhas.push(perfis[0]);
   else if(perfis.length>1) linhas.push(perfis.length+' composições cadastradas');
   if(emp && emp.cnpj) linhas.push('CNPJ: '+emp.cnpj);
+  const perfisRec = emp ? (emp.recomendacoesPadroes||[]) : [];
+  if(perfisRec.length>1) linhas.push(perfisRec.length+' padrões de recomendação cadastrados');
   const textoHtml = linhas.length ? linhas.map(l=>esc(l)).join('<br>') : '';
-  const recs = recomendacoesEfetivas(tam, empresaId);
+  const recs = perfisRec.length>1 ? [] : recomendacoesEfetivas(tam, empresaId);
   const iconsHtml = recs.length
     ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;color:var(--ink-soft);">${recs.map(r=>`<span title="${esc(r)}">${iconCuidado(r,16)}</span>`).join('')}</div>`
     : '';
@@ -1904,11 +1918,13 @@ function deleteNumeracao(id){
   saveWS(); renderAll();
   showToast('Numeração excluída.', 'good');
 }
+let tempRecPadroes = [];
 function openEmpresaForm(id){
   editingId = id || null;
   const d = cur();
   const isEtq = ws==='etiquetag';
-  const emp = id ? d.empresas.find(x=>x.id===id) : {nome:'', cnpj:'', usaRecomendacoesPadrao:false, recomendacoesPadrao:[]};
+  const emp = id ? d.empresas.find(x=>x.id===id) : {nome:'', cnpj:'', recomendacoesPadroes:[]};
+  tempRecPadroes = JSON.parse(JSON.stringify(emp.recomendacoesPadroes||[]));
   openModal(`
     <div class="modal-head"><h3>${id?'Editar':'Novo(a)'} ${termEmpresa().toLowerCase()}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <form onsubmit="saveEmpresa(event)">
@@ -1916,26 +1932,39 @@ function openEmpresaForm(id){
         <div class="field"><label>Nome ${isEtq?'da empresa / marca':'do cliente'}</label><input required id="f_nome" value="${esc(emp.nome)}" placeholder="${isEtq?'Ex.: Empresa X':'Ex.: Maria Silva'}"></div>
         ${isEtq ? `<div class="field"><label>CNPJ</label><input id="f_cnpj" value="${esc(emp.cnpj||'')}" placeholder="00.000.000/0001-00">
           <p class="hint">Usado na fabricação de Etiquetas de Composição para essa marca.</p></div>
-        <div class="field"><label><input type="checkbox" id="f_usarecpadrao" ${emp.usaRecomendacoesPadrao?'checked':''} onchange="toggleRecPadraoFields()" style="width:auto;margin-right:6px;"> Esta marca sempre usa o mesmo padrão de recomendações</label></div>
-        <div id="recPadraoFields" style="display:${emp.usaRecomendacoesPadrao?'block':'none'}">
-          <p class="hint" style="margin-top:0;">Ao escolher esta marca num pedido ou venda com Etiqueta de Composição, essas recomendações preenchem sozinhas.</p>
-          <div class="field">${recomendacoesChecklistHtml(emp.recomendacoesPadrao||[], 'f_recpadrao')}</div>
+        <div class="field"><label>Padrões de recomendações desta marca (opcional)</label>
+          <p class="hint" style="margin-top:0;">Se a marca usa mais de um padrão (ex.: Verão, Inverno, Algodão), cadastre um para cada — na hora do pedido ou venda você escolhe qual se aplica.</p>
+          <div id="recPadroesBody"></div>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addRecPadrao()" style="margin-top:4px;">${iconPlus()} Adicionar padrão de recomendações</button>
         </div>` : ''}
       </div>
       <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
     </form>`);
+  renderRecPadroesBody();
 }
-function toggleRecPadraoFields(){
-  const box = document.getElementById('f_usarecpadrao');
-  const wrap = document.getElementById('recPadraoFields');
-  if(wrap) wrap.style.display = box && box.checked ? 'block' : 'none';
+function renderRecPadroesBody(){
+  const body = document.getElementById('recPadroesBody');
+  if(!body) return;
+  body.innerHTML = tempRecPadroes.map((perfil,idx)=>`
+    <div style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;">
+        <input type="text" value="${esc(perfil.nome)}" placeholder="Nome do padrão (ex.: Verão)" style="flex:1;" oninput="updateRecPadraoNome(${idx},this.value)">
+        <button type="button" class="icon-btn" title="Remover este padrão" onclick="removeRecPadrao(${idx})">${iconX()}</button>
+      </div>
+      ${recomendacoesChecklistHtml(perfil.recomendacoes||[], 'f_recpadrao_'+idx)}
+    </div>`).join('') || `<p class="hint" style="margin:0 0 6px;">Nenhum padrão ainda — clique em "Adicionar padrão de recomendações".</p>`;
 }
+function addRecPadrao(){ tempRecPadroes.push({id:uid(), nome:'', recomendacoes:[]}); renderRecPadroesBody(); }
+function removeRecPadrao(idx){ tempRecPadroes.splice(idx,1); renderRecPadroesBody(); }
+function updateRecPadraoNome(idx, value){ tempRecPadroes[idx].nome = value; }
 function saveEmpresa(e){
   e.preventDefault();
-  const usaRecEl = document.getElementById('f_usarecpadrao');
   const data = { nome: document.getElementById('f_nome').value.trim(), cnpj: document.getElementById('f_cnpj') ? document.getElementById('f_cnpj').value.trim() : '',
-    usaRecomendacoesPadrao: usaRecEl ? usaRecEl.checked : false,
-    recomendacoesPadrao: usaRecEl && usaRecEl.checked ? Array.from(document.querySelectorAll('.f_recpadrao:checked')).map(el=>el.value) : [] };
+    recomendacoesPadroes: tempRecPadroes.map((p,idx)=>({
+      id: p.id||uid(),
+      nome: (p.nome||'').trim() || ('Padrão '+(idx+1)),
+      recomendacoes: Array.from(document.querySelectorAll('.f_recpadrao_'+idx+':checked')).map(el=>el.value)
+    })).filter(p=>p.recomendacoes.length) };
   const d = cur();
   if(!d.empresas) d.empresas = [];
   if(editingId){ Object.assign(d.empresas.find(x=>x.id===editingId), data); }
@@ -2099,7 +2128,7 @@ function updateItemReferencia(idx, refId){
   formItens[idx].descricaoRef = ref ? ref.descricao : '';
   renderItensBody();
 }
-function composicaoAlertaHtml(tamanhoId, empresaId, composicaoId, idx){
+function composicaoAlertaHtml(tamanhoId, empresaId, composicaoId, recPadraoId, idx){
   const tam = tamanhoObj(tamanhoId);
   if(!tam || !tam.composicao) return '';
   const perfis = tam.composicoes||[];
@@ -2116,15 +2145,25 @@ function composicaoAlertaHtml(tamanhoId, empresaId, composicaoId, idx){
     </select>`;
   }
   const emp = empresaObj(empresaId);
+  const perfisRec = emp ? (emp.recomendacoesPadroes||[]) : [];
+  let recSeletorHtml = '';
+  if(perfisRec.length>1){
+    recSeletorHtml = `<select onchange="updateItem(${idx},'recPadraoId',this.value)" style="margin-bottom:6px;">
+      <option value="">Selecione o padrão de recomendações</option>
+      ${perfisRec.map(p=>`<option value="${p.id}" ${recPadraoId===p.id?'selected':''}>${esc(p.nome)}</option>`).join('')}
+    </select>`;
+  }
   const linhas = [];
   if(perfilAtivo){ const txt = formatComposicoes(perfilAtivo.fibras); if(txt) linhas.push(txt); }
   if(emp && emp.cnpj) linhas.push('CNPJ: '+emp.cnpj);
-  const iconsHtml = recomendacoesEfetivas(tam, empresaId).length
-    ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">${recomendacoesEfetivas(tam, empresaId).map(r=>`<span title="${esc(r)}">${iconCuidado(r,16)}</span>`).join('')}</div>`
+  const recs = recomendacoesEfetivas(tam, empresaId, recPadraoId);
+  const iconsHtml = recs.length
+    ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">${recs.map(r=>`<span title="${esc(r)}">${iconCuidado(r,16)}</span>`).join('')}</div>`
     : '';
-  if(!seletorHtml && !linhas.length && !iconsHtml) return '';
+  if(!seletorHtml && !recSeletorHtml && !linhas.length && !iconsHtml) return '';
   return `<div class="composicao-alerta" style="background:var(--accent-soft,#f0f4f2);border:1px dashed var(--line);border-radius:8px;padding:8px 10px;margin:-4px 0 8px;font-size:11.5px;color:var(--ink-soft);">
     ${seletorHtml}
+    ${recSeletorHtml}
     ${linhas.length?`<div><strong style="color:var(--ink);">Etiqueta de Composição:</strong> ${linhas.map(l=>esc(l)).join(' · ')}</div>`:''}
     ${iconsHtml}
   </div>`;
@@ -2150,7 +2189,7 @@ function itemFormRowEtq(idx, item, vendaveis){
     <div class="item-total">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</div>
     <button type="button" class="icon-btn" onclick="removeItem(${idx})">${iconX()}</button>
   </div>
-  ${prodSel ? composicaoAlertaHtml(prodSel.tamanhoId, prodSel.empresaId, item.composicaoId, idx) : ''}
+  ${prodSel ? composicaoAlertaHtml(prodSel.tamanhoId, prodSel.empresaId, item.composicaoId, item.recPadraoId, idx) : ''}
   </div>`;
 }
 function itemFormRowPedidoEtq(idx, item){
@@ -2171,7 +2210,7 @@ function itemFormRowPedidoEtq(idx, item){
     <div class="item-total">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</div>
     <button type="button" class="icon-btn" onclick="removeItem(${idx})">${iconX()}</button>
   </div>
-  ${composicaoAlertaHtml(item.tamanhoId, item.empresaId, item.composicaoId, idx)}
+  ${composicaoAlertaHtml(item.tamanhoId, item.empresaId, item.composicaoId, item.recPadraoId, idx)}
   </div>`;
 }
 function updatePedidoTamanho(idx, tamanhoId){
@@ -2179,6 +2218,9 @@ function updatePedidoTamanho(idx, tamanhoId){
   formItens[idx].tamanhoId = tamanhoId;
   formItens[idx].precoUnit = tam ? (tam.precoMilheiro||0)/1000 : 0;
   formItens[idx].composicaoId = (tam && tam.composicao && (tam.composicoes||[]).length===1) ? tam.composicoes[0].id : '';
+  const emp = empresaObj(formItens[idx].empresaId);
+  const perfisRec = emp ? (emp.recomendacoesPadroes||[]) : [];
+  formItens[idx].recPadraoId = perfisRec.length===1 ? perfisRec[0].id : '';
   renderItensBody();
 }
 function updateItemMaterial(idx, key){
@@ -2186,6 +2228,7 @@ function updateItemMaterial(idx, key){
   formItens[idx].produtoId = '';
   formItens[idx].precoUnit = 0;
   formItens[idx].composicaoId = '';
+  formItens[idx].recPadraoId = '';
   renderItensBody();
 }
 function itemsHeadHtml(){
@@ -2200,15 +2243,19 @@ function updateItem(idx, field, value){
     formItens[idx].precoUnit = prod ? (isTagProntoEtq(prod) ? prod.preco/1000 : prod.preco) : 0;
     const tam = prod ? tamanhoObj(prod.tamanhoId) : null;
     formItens[idx].composicaoId = (tam && tam.composicao && (tam.composicoes||[]).length===1) ? tam.composicoes[0].id : '';
+    const emp = prod ? empresaObj(prod.empresaId) : null;
+    const perfisRec = emp ? (emp.recomendacoesPadroes||[]) : [];
+    formItens[idx].recPadraoId = perfisRec.length===1 ? perfisRec[0].id : '';
   } else if(field==='numeracaoId'){ formItens[idx].numeracaoId = value; }
   else if(field==='quantidade'){ formItens[idx].quantidade = parseFloat(value)||0; }
   else if(field==='precoUnit'){ formItens[idx].precoUnit = parseFloat(value)||0; }
   else if(field==='composicaoId'){ formItens[idx].composicaoId = value; }
+  else if(field==='recPadraoId'){ formItens[idx].recPadraoId = value; }
   renderItensBody();
 }
 function addItem(){
-  if(ws==='etiquetag' && formContext==='pedido'){ formItens.push({tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:''}); }
-  else { formItens.push({produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:''}); }
+  if(ws==='etiquetag' && formContext==='pedido'){ formItens.push({tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:'',recPadraoId:''}); }
+  else { formItens.push({produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:'',recPadraoId:''}); }
   renderItensBody();
 }
 function removeItem(idx){ formItens.splice(idx,1); renderItensBody(); }
@@ -2229,7 +2276,7 @@ function renderItensBody(){
 function openPedidoForm(){
   editingId = null;
   formContext = 'pedido';
-  formItens = ws==='etiquetag' ? [{tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:''}] : [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:''}];
+  formItens = ws==='etiquetag' ? [{tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:'',recPadraoId:''}] : [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:'',recPadraoId:''}];
   const empresasCatalog = cur().empresas||[];
   openModal(`
     <div class="modal-head"><h3>Novo pedido</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
@@ -2271,7 +2318,7 @@ function savePedido(e){
       if(it.descricaoRef) nome += ' — '+it.descricaoRef;
       const produtoExistente = d.estoque.find(p=>p.tipo==='Tag' && p.tamanhoId===it.tamanhoId && p.numeracaoId===(it.numeracaoId||'') && p.empresaId===(empresaMatch?empresaMatch.id:''));
       return { produtoId: produtoExistente?produtoExistente.id:'', tamanhoId: it.tamanhoId, numeracaoId: it.numeracaoId, empresaId: empresaMatch?empresaMatch.id:'',
-        referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'',
+        referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'',
         nome, unidade:'un', quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit };
     });
   } else {
@@ -2281,7 +2328,7 @@ function savePedido(e){
       const prod = d.estoque.find(p=>p.id===it.produtoId);
       let nome = tagFullLabel(prod);
       if(it.descricaoRef) nome += ' — '+it.descricaoRef;
-      return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
+      return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
     });
   }
   const total = itens.reduce((s,i)=>s+i.subtotal,0);
@@ -2542,7 +2589,7 @@ function deleteVenda(id){
 function openVendaForm(){
   editingId = null;
   formContext = 'venda';
-  formItens = [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:''}];
+  formItens = [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:'',recPadraoId:''}];
   const empresasCatalog = cur().empresas||[];
   openModal(`
     <div class="modal-head"><h3>Nova venda</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
@@ -2584,7 +2631,7 @@ function saveVenda(e){
     const prod = d.estoque.find(p=>p.id===it.produtoId);
     let nome = tagFullLabel(prod);
     if(it.descricaoRef) nome += ' — '+it.descricaoRef;
-    return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
+    return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
   });
   const subtotal = itens.reduce((s,i)=>s+i.subtotal,0);
   const desconto = parseFloat(document.getElementById('f_desconto').value)||0;
@@ -2747,7 +2794,7 @@ function composicaoLineText(i){
   const compTxt = perfilEscolhido ? formatComposicoes(perfilEscolhido.fibras) : '';
   if(compTxt) partes.push(compTxt);
   if(emp && emp.cnpj) partes.push('CNPJ: '+emp.cnpj);
-  return { texto: partes.join(' · '), recomendacoes: recomendacoesEfetivas(tam, i.empresaId) };
+  return { texto: partes.join(' · '), recomendacoes: recomendacoesEfetivas(tam, i.empresaId, i.recPadraoId) };
 }
 function itensTableHtml(itens){
   const temRef = itens.some(i=>i.referencia||i.descricaoRef);
