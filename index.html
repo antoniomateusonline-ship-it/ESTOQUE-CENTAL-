@@ -2147,10 +2147,11 @@ function composicaoAlertaHtml(tamanhoId, empresaId, composicaoId, recPadraoId, i
   const emp = empresaObj(empresaId);
   const perfisRec = emp ? (emp.recomendacoesPadroes||[]) : [];
   let recSeletorHtml = '';
-  if(perfisRec.length>1){
+  if(perfisRec.length>=1){
+    const recEscolhidoId = perfisRec.length===1 ? perfisRec[0].id : recPadraoId;
     recSeletorHtml = `<select onchange="updateItem(${idx},'recPadraoId',this.value)" style="margin-bottom:6px;">
       <option value="">Selecione o padrão de recomendações</option>
-      ${perfisRec.map(p=>`<option value="${p.id}" ${recPadraoId===p.id?'selected':''}>${esc(p.nome)}</option>`).join('')}
+      ${perfisRec.map(p=>`<option value="${p.id}" ${recEscolhidoId===p.id?'selected':''}>${esc(p.nome)}</option>`).join('')}
     </select>`;
   }
   const linhas = [];
@@ -2192,8 +2193,15 @@ function itemFormRowEtq(idx, item, vendaveis){
   ${prodSel ? composicaoAlertaHtml(prodSel.tamanhoId, prodSel.empresaId, item.composicaoId, item.recPadraoId, idx) : ''}
   </div>`;
 }
+function pedidoEmpresaAtual(){
+  const el = document.getElementById('f_cliente');
+  if(!el || !el.value.trim()) return null;
+  const nome = el.value.trim().toLowerCase();
+  return (cur().empresas||[]).find(e=>e.nome.toLowerCase()===nome) || null;
+}
 function itemFormRowPedidoEtq(idx, item){
   const d = cur();
+  const empAtual = pedidoEmpresaAtual();
   return `<div id="item_${idx}">
   ${referenciaRowHtml(idx, item)}
   <div class="item-row-etq">
@@ -2210,7 +2218,7 @@ function itemFormRowPedidoEtq(idx, item){
     <div class="item-total">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</div>
     <button type="button" class="icon-btn" onclick="removeItem(${idx})">${iconX()}</button>
   </div>
-  ${composicaoAlertaHtml(item.tamanhoId, item.empresaId, item.composicaoId, item.recPadraoId, idx)}
+  ${composicaoAlertaHtml(item.tamanhoId, empAtual?empAtual.id:'', item.composicaoId, item.recPadraoId, idx)}
   </div>`;
 }
 function updatePedidoTamanho(idx, tamanhoId){
@@ -2283,7 +2291,7 @@ function openPedidoForm(){
     <form onsubmit="savePedido(event)">
       <div class="modal-body">
         <div class="field-row">
-          <div class="field"><label>Cliente</label><input required id="f_cliente" list="clientesList" placeholder="Nome do cliente">
+          <div class="field"><label>Cliente</label><input required id="f_cliente" list="clientesList" placeholder="Nome do cliente" oninput="renderItensBody()">
             <datalist id="clientesList">${empresasCatalog.map(e=>`<option value="${esc(e.nome)}">`).join('')}</datalist></div>
           <div class="field"><label>Data</label><input required type="date" id="f_data" value="${new Date().toISOString().slice(0,10)}"></div>
         </div>
