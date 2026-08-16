@@ -388,12 +388,17 @@ function migrateIfNeeded(wsKey, raw){
       if(t.etiquetasPorMetroManual===undefined) t.etiquetasPorMetroManual = 0;
       if(t.composicao===undefined) t.composicao = /composição/i.test(t.nome||'');
       if(!t.composicoes){
-        t.composicoes = t.composicaoTexto ? t.composicaoTexto.split(',').map(part=>{
+        const fibrasAntigas = t.composicaoTexto ? t.composicaoTexto.split(',').map(part=>{
           part = part.trim();
           const m = part.match(/^([\d.,]+%?)\s*(.*)$/);
           return (m && m[2]) ? {percentual:m[1], fibra:m[2]} : {percentual:'', fibra:part};
         }).filter(c=>c.fibra) : [];
+        t.composicoes = fibrasAntigas.length ? [{id:uid(), fibras:fibrasAntigas}] : [];
+      } else if(t.composicoes.length && t.composicoes[0] && t.composicoes[0].fibras===undefined && t.composicoes[0].fibra!==undefined){
+        // formato antigo: lista plana de fibras vira um único perfil
+        t.composicoes = [{id:uid(), fibras: t.composicoes}];
       }
+      t.composicoes.forEach(p=>{ if(!p.id) p.id = uid(); if(!p.fibras) p.fibras = []; });
       delete t.composicaoTexto;
       if(!t.recomendacoes) t.recomendacoes = [];
     });
@@ -930,9 +935,10 @@ function formatComposicoes(composicoes){
 function composicaoInfoHtml(tam, empresaId){
   if(!tam || !tam.composicao) return '';
   const emp = empresaObj(empresaId);
+  const perfis = (tam.composicoes||[]).map(p=>formatComposicoes(p.fibras)).filter(Boolean);
   const linhas = [];
-  const compTxt = formatComposicoes(tam.composicoes);
-  if(compTxt) linhas.push(compTxt);
+  if(perfis.length===1) linhas.push(perfis[0]);
+  else if(perfis.length>1) linhas.push(perfis.length+' composições cadastradas');
   if(emp && emp.cnpj) linhas.push('CNPJ: '+emp.cnpj);
   const textoHtml = linhas.length ? linhas.map(l=>esc(l)).join('<br>') : '';
   const iconsHtml = (tam.recomendacoes||[]).length
@@ -1573,7 +1579,7 @@ function renderTamanhos(){
   else if(isEtq){
     modelosContent = `<table><thead><tr><th>Nome</th><th>Dimensão</th><th>Un./rolo</th><th>Preço/milheiro</th><th>Composição</th><th></th></tr></thead>
       <tbody>${d.tamanhos.map(t=>{
-        return `<tr><td>${esc(t.nome)}${t.composicao?' <span class="cat-tag">Composição</span>':''}</td><td class="mono">${esc(t.dimensao)||'—'}</td><td class="mono">${fmtQty(t.unidadesPorRolo)}</td><td class="mono">${fmtMoney(t.precoMilheiro||0)}</td><td>${t.composicao?esc(formatComposicoes(t.composicoes))||'—':'—'}</td>
+        return `<tr><td>${esc(t.nome)}${t.composicao?' <span class="cat-tag">Composição</span>':''}</td><td class="mono">${esc(t.dimensao)||'—'}</td><td class="mono">${fmtQty(t.unidadesPorRolo)}</td><td class="mono">${fmtMoney(t.precoMilheiro||0)}</td><td>${t.composicao?((t.composicoes||[]).length===1?esc(formatComposicoes(t.composicoes[0].fibras)):((t.composicoes||[]).length+' composições')):'—'}</td>
         <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openTamanhoForm('${t.id}')">${iconEdit()}</button>
         <button class="icon-btn" title="Excluir" onclick="deleteTamanho('${t.id}')">${iconTrash()}</button></div></td></tr>`;
       }).join('')}</tbody></table>`;
@@ -1698,9 +1704,10 @@ function openTamanhoForm(id){
         <p class="hint">Esse é o preço de referência deste produto — aparece automaticamente ao selecioná-lo num pedido ou ao produzir, mas pode ser ajustado caso a caso.</p>
         <div class="field"><label><input type="checkbox" id="f_composicao" ${t.composicao?'checked':''} onchange="toggleComposicaoFields()" style="width:auto;margin-right:6px;"> Este modelo é uma Etiqueta de Composição</label></div>
         <div id="composicaoFields" style="display:${t.composicao?'block':'none'}">
-          <div class="field"><label>Composição têxtil</label>
+          <div class="field"><label>Composições têxteis cadastradas</label>
+            <p class="hint" style="margin-top:0;">Se esse modelo é usado para mais de um tipo de tecido, cadastre uma composição para cada — na hora do pedido você escolhe qual se aplica.</p>
             <div id="composicoesBody"></div>
-            <button type="button" class="btn btn-ghost btn-sm" onclick="addComposicaoRow()" style="margin-top:4px;">${iconPlus()} Adicionar composição</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="addPerfilComposicao()" style="margin-top:4px;">${iconPlus()} Adicionar composição</button>
           </div>
           <div class="field"><label>Recomendações (pode marcar mais de uma)</label>
             <div class="radio-row" style="flex-direction:column;align-items:flex-start;gap:8px;max-height:220px;overflow-y:auto;">
@@ -1717,16 +1724,26 @@ function openTamanhoForm(id){
 function renderComposicoesBody(){
   const body = document.getElementById('composicoesBody');
   if(!body) return;
-  body.innerHTML = tempComposicoes.map((c,idx)=>`
-    <div style="display:grid;grid-template-columns:90px 1fr 30px;gap:8px;align-items:center;margin-bottom:8px;">
-      <input type="text" value="${esc(c.percentual)}" placeholder="Ex: 61%" oninput="updateComposicaoField(${idx},'percentual',this.value)">
-      <input type="text" value="${esc(c.fibra)}" placeholder="Ex: Algodão" oninput="updateComposicaoField(${idx},'fibra',this.value)">
-      <button type="button" class="icon-btn" onclick="removeComposicaoRow(${idx})">${iconX()}</button>
+  body.innerHTML = tempComposicoes.map((perfil,pIdx)=>`
+    <div style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <strong style="font-size:12px;color:var(--ink-soft);">Composição ${pIdx+1}</strong>
+        <button type="button" class="icon-btn" title="Remover esta composição" onclick="removePerfilComposicao(${pIdx})">${iconX()}</button>
+      </div>
+      ${(perfil.fibras||[]).map((f,fIdx)=>`
+        <div style="display:grid;grid-template-columns:90px 1fr 30px;gap:8px;align-items:center;margin-bottom:6px;">
+          <input type="text" value="${esc(f.percentual)}" placeholder="Ex: 61%" oninput="updateFibraField(${pIdx},${fIdx},'percentual',this.value)">
+          <input type="text" value="${esc(f.fibra)}" placeholder="Ex: Algodão" oninput="updateFibraField(${pIdx},${fIdx},'fibra',this.value)">
+          <button type="button" class="icon-btn" onclick="removeFibraRow(${pIdx},${fIdx})">${iconX()}</button>
+        </div>`).join('')}
+      <button type="button" class="btn btn-ghost btn-sm" onclick="addFibraRow(${pIdx})">${iconPlus()} Adicionar fibra</button>
     </div>`).join('') || `<p class="hint" style="margin:0 0 6px;">Nenhuma composição ainda — clique em "Adicionar composição".</p>`;
 }
-function addComposicaoRow(){ tempComposicoes.push({percentual:'',fibra:''}); renderComposicoesBody(); }
-function updateComposicaoField(idx, field, value){ tempComposicoes[idx][field] = value; }
-function removeComposicaoRow(idx){ tempComposicoes.splice(idx,1); renderComposicoesBody(); }
+function addPerfilComposicao(){ tempComposicoes.push({id:uid(), fibras:[{percentual:'',fibra:''}]}); renderComposicoesBody(); }
+function removePerfilComposicao(pIdx){ tempComposicoes.splice(pIdx,1); renderComposicoesBody(); }
+function addFibraRow(pIdx){ tempComposicoes[pIdx].fibras.push({percentual:'',fibra:''}); renderComposicoesBody(); }
+function removeFibraRow(pIdx, fIdx){ tempComposicoes[pIdx].fibras.splice(fIdx,1); renderComposicoesBody(); }
+function updateFibraField(pIdx, fIdx, field, value){ tempComposicoes[pIdx].fibras[fIdx][field] = value; }
 function toggleComposicaoFields(){
   const box = document.getElementById('f_composicao');
   const wrap = document.getElementById('composicaoFields');
@@ -1743,7 +1760,7 @@ function saveTamanho(e){
     etiquetasPorMetroManual: isEtq ? (parseFloat(document.getElementById('f_epm').value)||0) : 0,
     precoMilheiro: isEtq ? (parseFloat(document.getElementById('f_precomilheiro').value)||0) : 0,
     composicao: isEtq && composicaoEl ? composicaoEl.checked : false,
-    composicoes: isEtq ? tempComposicoes.filter(c=>c.fibra&&c.fibra.trim()).map(c=>({percentual:(c.percentual||'').trim(), fibra:c.fibra.trim()})) : [],
+    composicoes: isEtq ? tempComposicoes.map(p=>({id:p.id||uid(), fibras:(p.fibras||[]).filter(f=>f.fibra&&f.fibra.trim()).map(f=>({percentual:(f.percentual||'').trim(), fibra:f.fibra.trim()}))})).filter(p=>p.fibras.length) : [],
     recomendacoes: isEtq ? Array.from(document.querySelectorAll('.f_recomendacao:checked')).map(el=>el.value) : [] };
   const d = cur();
   if(editingId){ Object.assign(d.tamanhos.find(t=>t.id===editingId), data); }
@@ -1970,20 +1987,34 @@ function updateItemReferencia(idx, refId){
   formItens[idx].descricaoRef = ref ? ref.descricao : '';
   renderItensBody();
 }
-function composicaoAlertaHtml(tamanhoId, empresaId){
+function composicaoAlertaHtml(tamanhoId, empresaId, composicaoId, idx){
   const tam = tamanhoObj(tamanhoId);
   if(!tam || !tam.composicao) return '';
-  const compTxt = formatComposicoes(tam.composicoes);
+  const perfis = tam.composicoes||[];
+  if(!perfis.length) return '';
+  let perfilAtivo = null;
+  let seletorHtml = '';
+  if(perfis.length===1){
+    perfilAtivo = perfis[0];
+  } else {
+    perfilAtivo = perfis.find(p=>p.id===composicaoId) || null;
+    seletorHtml = `<select onchange="updateItem(${idx},'composicaoId',this.value)" style="margin-bottom:6px;">
+      <option value="">Selecione a composição têxtil</option>
+      ${perfis.map(p=>`<option value="${p.id}" ${composicaoId===p.id?'selected':''}>${esc(formatComposicoes(p.fibras))}</option>`).join('')}
+    </select>`;
+  }
   const emp = empresaObj(empresaId);
   const linhas = [];
-  if(compTxt) linhas.push(compTxt);
+  if(perfilAtivo){ const txt = formatComposicoes(perfilAtivo.fibras); if(txt) linhas.push(txt); }
   if(emp && emp.cnpj) linhas.push('CNPJ: '+emp.cnpj);
   const iconsHtml = (tam.recomendacoes||[]).length
     ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">${tam.recomendacoes.map(r=>`<span title="${esc(r)}">${iconCuidado(r,16)}</span>`).join('')}</div>`
     : '';
-  if(!linhas.length && !iconsHtml) return '';
+  if(!seletorHtml && !linhas.length && !iconsHtml) return '';
   return `<div class="composicao-alerta" style="background:var(--accent-soft,#f0f4f2);border:1px dashed var(--line);border-radius:8px;padding:8px 10px;margin:-4px 0 8px;font-size:11.5px;color:var(--ink-soft);">
-    <strong style="color:var(--ink);">Etiqueta de Composição:</strong> ${linhas.map(l=>esc(l)).join(' · ')}${iconsHtml}
+    ${seletorHtml}
+    ${linhas.length?`<div><strong style="color:var(--ink);">Etiqueta de Composição:</strong> ${linhas.map(l=>esc(l)).join(' · ')}</div>`:''}
+    ${iconsHtml}
   </div>`;
 }
 function itemFormRowEtq(idx, item, vendaveis){
@@ -2007,7 +2038,7 @@ function itemFormRowEtq(idx, item, vendaveis){
     <div class="item-total">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</div>
     <button type="button" class="icon-btn" onclick="removeItem(${idx})">${iconX()}</button>
   </div>
-  ${prodSel ? composicaoAlertaHtml(prodSel.tamanhoId, prodSel.empresaId) : ''}
+  ${prodSel ? composicaoAlertaHtml(prodSel.tamanhoId, prodSel.empresaId, item.composicaoId, idx) : ''}
   </div>`;
 }
 function itemFormRowPedidoEtq(idx, item){
@@ -2028,19 +2059,21 @@ function itemFormRowPedidoEtq(idx, item){
     <div class="item-total">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</div>
     <button type="button" class="icon-btn" onclick="removeItem(${idx})">${iconX()}</button>
   </div>
-  ${composicaoAlertaHtml(item.tamanhoId, item.empresaId)}
+  ${composicaoAlertaHtml(item.tamanhoId, item.empresaId, item.composicaoId, idx)}
   </div>`;
 }
 function updatePedidoTamanho(idx, tamanhoId){
   const tam = tamanhoObj(tamanhoId);
   formItens[idx].tamanhoId = tamanhoId;
   formItens[idx].precoUnit = tam ? (tam.precoMilheiro||0)/1000 : 0;
+  formItens[idx].composicaoId = (tam && tam.composicao && (tam.composicoes||[]).length===1) ? tam.composicoes[0].id : '';
   renderItensBody();
 }
 function updateItemMaterial(idx, key){
   formItens[idx].materialKey = key;
   formItens[idx].produtoId = '';
   formItens[idx].precoUnit = 0;
+  formItens[idx].composicaoId = '';
   renderItensBody();
 }
 function itemsHeadHtml(){
@@ -2053,14 +2086,17 @@ function updateItem(idx, field, value){
     const prod = d.estoque.find(p=>p.id===value);
     formItens[idx].produtoId = value;
     formItens[idx].precoUnit = prod ? (isTagProntoEtq(prod) ? prod.preco/1000 : prod.preco) : 0;
+    const tam = prod ? tamanhoObj(prod.tamanhoId) : null;
+    formItens[idx].composicaoId = (tam && tam.composicao && (tam.composicoes||[]).length===1) ? tam.composicoes[0].id : '';
   } else if(field==='numeracaoId'){ formItens[idx].numeracaoId = value; }
   else if(field==='quantidade'){ formItens[idx].quantidade = parseFloat(value)||0; }
   else if(field==='precoUnit'){ formItens[idx].precoUnit = parseFloat(value)||0; }
+  else if(field==='composicaoId'){ formItens[idx].composicaoId = value; }
   renderItensBody();
 }
 function addItem(){
-  if(ws==='etiquetag' && formContext==='pedido'){ formItens.push({tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:''}); }
-  else { formItens.push({produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:''}); }
+  if(ws==='etiquetag' && formContext==='pedido'){ formItens.push({tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:''}); }
+  else { formItens.push({produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:''}); }
   renderItensBody();
 }
 function removeItem(idx){ formItens.splice(idx,1); renderItensBody(); }
@@ -2081,7 +2117,7 @@ function renderItensBody(){
 function openPedidoForm(){
   editingId = null;
   formContext = 'pedido';
-  formItens = ws==='etiquetag' ? [{tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:''}] : [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:''}];
+  formItens = ws==='etiquetag' ? [{tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:''}] : [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:''}];
   const empresasCatalog = cur().empresas||[];
   openModal(`
     <div class="modal-head"><h3>Novo pedido</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
@@ -2123,7 +2159,7 @@ function savePedido(e){
       if(it.descricaoRef) nome += ' — '+it.descricaoRef;
       const produtoExistente = d.estoque.find(p=>p.tipo==='Tag' && p.tamanhoId===it.tamanhoId && p.numeracaoId===(it.numeracaoId||'') && p.empresaId===(empresaMatch?empresaMatch.id:''));
       return { produtoId: produtoExistente?produtoExistente.id:'', tamanhoId: it.tamanhoId, numeracaoId: it.numeracaoId, empresaId: empresaMatch?empresaMatch.id:'',
-        referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'',
+        referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'',
         nome, unidade:'un', quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit };
     });
   } else {
@@ -2133,7 +2169,7 @@ function savePedido(e){
       const prod = d.estoque.find(p=>p.id===it.produtoId);
       let nome = tagFullLabel(prod);
       if(it.descricaoRef) nome += ' — '+it.descricaoRef;
-      return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
+      return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
     });
   }
   const total = itens.reduce((s,i)=>s+i.subtotal,0);
@@ -2394,7 +2430,7 @@ function deleteVenda(id){
 function openVendaForm(){
   editingId = null;
   formContext = 'venda';
-  formItens = [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:''}];
+  formItens = [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:''}];
   const empresasCatalog = cur().empresas||[];
   openModal(`
     <div class="modal-head"><h3>Nova venda</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
@@ -2436,7 +2472,7 @@ function saveVenda(e){
     const prod = d.estoque.find(p=>p.id===it.produtoId);
     let nome = tagFullLabel(prod);
     if(it.descricaoRef) nome += ' — '+it.descricaoRef;
-    return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
+    return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
   });
   const subtotal = itens.reduce((s,i)=>s+i.subtotal,0);
   const desconto = parseFloat(document.getElementById('f_desconto').value)||0;
@@ -2594,7 +2630,9 @@ function composicaoLineText(i){
   if(!tam || !tam.composicao) return '';
   const emp = empresaObj(i.empresaId);
   const partes = [];
-  const compTxt = formatComposicoes(tam.composicoes);
+  const perfis = tam.composicoes||[];
+  const perfilEscolhido = perfis.length===1 ? perfis[0] : perfis.find(p=>p.id===i.composicaoId);
+  const compTxt = perfilEscolhido ? formatComposicoes(perfilEscolhido.fibras) : '';
   if(compTxt) partes.push(compTxt);
   if(emp && emp.cnpj) partes.push('CNPJ: '+emp.cnpj);
   return { texto: partes.join(' · '), recomendacoes: tam.recomendacoes||[] };
