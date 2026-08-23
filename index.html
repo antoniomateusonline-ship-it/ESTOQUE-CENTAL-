@@ -280,6 +280,10 @@
     </div>
     <nav class="nav" id="navList"></nav>
     <div class="sidebar-footer">
+      <button class="nav-item" onclick="abrirSeletorUsuario(false)">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        <span id="usuarioAtualLabel">Selecionar pessoa</span>
+      </button>
       <button class="nav-item" onclick="openBackupModal()">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>
         Backup
@@ -672,6 +676,7 @@ function setTopbar(title, sub, actionsHtml){
 }
 function renderAll(){
   renderWsBar(); renderNav();
+  const lbl = document.getElementById('usuarioAtualLabel'); if(lbl) lbl.textContent = usuarioAtual ? usuarioAtual.nome : 'Selecionar pessoa';
   const c = document.getElementById('content');
   const isEtq = ws==='etiquetag';
   if(section==='dashboard'){ setTopbar('Painel', 'Visão geral do estoque e produção'); c.innerHTML = renderDashboard(); }
@@ -1445,6 +1450,59 @@ function saveEstoque(e){
   closeModal(); saveWS(); renderAll();
   showToast('Salvo com sucesso.', 'good');
 }
+function openReajusteLoteModal(){
+  const d = cur();
+  const isEtq = ws==='etiquetag';
+  const tiposDisponiveis = isEtq
+    ? [{v:'Ribbon',l:'Ribbons'},{v:'TagMP',l:'Tags/Composição em branco (matéria-prima)'},{v:'Tag',l:'Produtos prontos'},{v:'Outro',l:'Outros materiais'}]
+    : [{v:'',l:'Todos os itens'}];
+  openModal(`
+    <div class="modal-head"><h3>Reajustar preços em lote</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="aplicarReajusteLote(event)">
+      <div class="modal-body">
+        <p class="hint" style="margin-top:0;">Aplica um aumento (ou desconto) percentual de uma vez em vários itens. Fica registrado no histórico de preço de cada um.</p>
+        <div class="field"><label>Aplicar em</label><select id="f_reajustetipo">
+          ${isEtq ? `<option value="">Todos os tipos</option>` : ''}
+          ${tiposDisponiveis.map(t=>`<option value="${t.v}">${t.l}</option>`).join('')}
+        </select></div>
+        <div class="field"><label>Percentual de reajuste</label><input required type="number" step="0.1" id="f_reajustepct" placeholder="Ex.: 10 (aumenta 10%) ou -5 (reduz 5%)"></div>
+        <div class="field"><label>Aplicar sobre</label>
+          <div class="radio-row">
+            <label><input type="radio" name="f_reajustealvo" value="preco" checked> Preço de venda</label>
+            <label><input type="radio" name="f_reajustealvo" value="custo"> Custo</label>
+            <label><input type="radio" name="f_reajustealvo" value="ambos"> Ambos</label>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Aplicar reajuste</button></div>
+    </form>`);
+}
+function aplicarReajusteLote(e){
+  e.preventDefault();
+  const d = cur();
+  const tipo = document.getElementById('f_reajustetipo').value;
+  const pct = parseFloat(document.getElementById('f_reajustepct').value);
+  const alvo = document.querySelector('input[name="f_reajustealvo"]:checked').value;
+  if(isNaN(pct) || pct===0){ showToast('Informe um percentual diferente de zero.', 'bad'); return; }
+  const fator = 1 + (pct/100);
+  const itensAlvo = d.estoque.filter(it=> !tipo || it.tipo===tipo);
+  if(!itensAlvo.length){ showToast('Nenhum item encontrado para esse filtro.', 'bad'); return; }
+  if(!confirm('Isso vai reajustar '+itensAlvo.length+' item(ns) em '+pct+'%. Confirma?')) return;
+  const dataHoje = todayISO();
+  itensAlvo.forEach(it=>{
+    if(!it.historicoPrecos) it.historicoPrecos = [];
+    const precoAntigo = it.preco, custoAntigo = it.custo;
+    let mudou = false;
+    if(alvo==='preco' || alvo==='ambos'){ it.preco = Math.round(it.preco*fator*1000)/1000; mudou = true; }
+    if(alvo==='custo' || alvo==='ambos'){ it.custo = Math.round(it.custo*fator*1000)/1000; mudou = true; }
+    if(mudou){
+      it.historicoPrecos.push({ data: dataHoje, custo: custoAntigo, preco: precoAntigo });
+      if(it.historicoPrecos.length>30) it.historicoPrecos = it.historicoPrecos.slice(-30);
+    }
+  });
+  closeModal(); saveWS(); renderAll();
+  showToast('Reajuste aplicado em '+itensAlvo.length+' item(ns).', 'good');
+}
 function openHistoricoPrecoModal(itemId){
   const d = cur();
   const it = d.estoque.find(x=>x.id===itemId);
@@ -1566,7 +1624,7 @@ function openProducaoModal(tagMpId){
         </select><p class="hint">Cria um item de produção para cada tamanho pedido, já preenchido.</p></div>` : ''}
         <div id="producaoItensBody"></div>
         <button type="button" class="btn btn-ghost btn-sm" onclick="addProducaoItem('${tagMpId}')" style="margin-bottom:14px;">${iconPlus()} Adicionar item</button>
-        <div class="field"><label>Responsável (quem produziu)</label><input id="f_responsavel" placeholder="Ex.: Mateus"></div>
+        <div class="field"><label>Responsável (quem produziu)</label><input id="f_responsavel" value="${usuarioAtual?esc(usuarioAtual.nome):''}" placeholder="Ex.: Mateus"></div>
         <div class="total-line"><span>Total a produzir</span><span id="producaoTotalQtd">0 un.</span></div>
       </div>
       <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconFactory()} Registrar Produção</button></div>
@@ -1832,7 +1890,7 @@ function renderTamanhos(){
   }
 
   html += collapsiblePanel('cad-materiais', 'Materiais cadastrados', 'Todos os itens do estoque, com edição rápida e o preço usado em pedidos/vendas.',
-    `<button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button>`,
+    `<div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openReajusteLoteModal()">${iconAdjust()} Reajustar preços em lote</button><button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button></div>`,
     d.estoque.length ? `<table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Estoque</th><th>Preço</th><th></th></tr></thead>
     <tbody>${[...d.estoque].sort((a,b)=>a.nome.localeCompare(b.nome)).map(it=>{
       const tipoTxt = isEtq ? (it.tipo==='Ribbon'?'Ribbon':it.tipo==='TagMP'?'Matéria-prima':'Produto pronto') : (it.categoria||'Item');
@@ -1842,6 +1900,14 @@ function renderTamanhos(){
       <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button></div></td></tr>`;
     }).join('')}</tbody></table>`
     : `<div class="empty" style="padding:24px;"><p>Nenhum material cadastrado ainda.</p></div>`);
+
+  html += collapsiblePanel('cad-pessoas', 'Pessoas', 'Quem usa o app — aparece em pedidos, vendas e produções como "criado por". Não é uma senha, só identificação.',
+    `<button class="btn btn-accent btn-sm" onclick="abrirNovoUsuarioForm()">${iconPlus()} Nova pessoa</button>`,
+    usuarios.length ? `<table><thead><tr><th>Nome</th><th></th></tr></thead>
+    <tbody>${usuarios.map(u=>`<tr><td>${esc(u.nome)}${usuarioAtual&&usuarioAtual.id===u.id?' <span class="cat-tag">Atual</span>':''}</td>
+      <td><div class="row-actions"><button class="icon-btn" title="Usar este perfil" onclick="selecionarUsuario('${u.id}')">${iconCheck()}</button>
+      <button class="icon-btn" title="Excluir" onclick="excluirUsuario('${u.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
+    : `<div class="empty" style="padding:24px;"><p>Nenhuma pessoa cadastrada ainda.</p></div>`);
 
   return html;
 }
@@ -2099,6 +2165,8 @@ function saveTamanho(e){
     composicoes: isEtq ? tempComposicoes.map(p=>({id:p.id||uid(), fibras:(p.fibras||[]).filter(f=>f.fibra&&f.fibra.trim()).map(f=>({percentual:(f.percentual||'').trim(), fibra:f.fibra.trim()}))})).filter(p=>p.fibras.length) : [],
     recomendacoes: isEtq ? Array.from(document.querySelectorAll('.f_recomendacao:checked')).map(el=>el.value) : [] };
   const d = cur();
+  const duplicado = d.tamanhos.find(t=>t.id!==editingId && t.nome.toLowerCase()===data.nome.toLowerCase());
+  if(duplicado && !confirm('Já existe um '+(isEtq?'modelo':'tamanho')+' chamado "'+data.nome+'". Continuar mesmo assim?')) return;
   if(editingId){ Object.assign(d.tamanhos.find(t=>t.id===editingId), data); }
   else { data.id = uid(); d.tamanhos.push(data); }
   closeModal(); saveWS(); renderAll();
@@ -2179,6 +2247,8 @@ function saveEmpresa(e){
   const data = { nome: document.getElementById('f_nome').value.trim(), cnpj: document.getElementById('f_cnpj') ? document.getElementById('f_cnpj').value.trim() : '' };
   const d = cur();
   if(!d.empresas) d.empresas = [];
+  const duplicado = d.empresas.find(x=>x.id!==editingId && x.nome.toLowerCase()===data.nome.toLowerCase());
+  if(duplicado && !confirm('Já existe um(a) '+termEmpresa().toLowerCase()+' chamado(a) "'+data.nome+'". Continuar mesmo assim?')) return;
   if(editingId){ Object.assign(d.empresas.find(x=>x.id===editingId), data); }
   else { data.id = uid(); d.empresas.push(data); }
   closeModal(); saveWS(); renderAll();
@@ -2350,7 +2420,7 @@ function renderPedidos(){
       <thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Itens</th><th>Total</th><th></th></tr></thead>
       <tbody>${lista.map(p=>`
         <tr>
-          <td><span class="code-tag">${esc(p.numero)}</span></td><td>${esc(p.cliente)}</td><td>${fmtDate(p.data)}</td><td>${p.itens.length}</td>
+          <td><span class="code-tag">${esc(p.numero)}</span></td><td>${esc(p.cliente)}${(p.criadoPor||p.canceladoPor)?`<div class="l-sub">${p.canceladoPor?'Cancelado por '+esc(p.canceladoPor):(p.criadoPor?'Criado por '+esc(p.criadoPor):'')}</div>`:''}</td><td>${fmtDate(p.data)}</td><td>${p.itens.length}</td>
           <td class="mono">${fmtMoney(p.total)}</td>
           <td><div class="row-actions">
             <button class="btn btn-ghost btn-sm" title="Imprimir" onclick="printPedido('${p.id}')">${iconPrint()} Imprimir</button>
@@ -2848,7 +2918,8 @@ function savePedido(e){
   }
   const total = itens.reduce((s,i)=>s+i.subtotal,0);
   const pedido = { id: uid(), numero: nextCode('PD','pd'), cliente: clienteNome,
-    data: document.getElementById('f_data').value, observacoes: document.getElementById('f_obs').value.trim(), itens, total, status:'Pendente' };
+    data: document.getElementById('f_data').value, observacoes: document.getElementById('f_obs').value.trim(), itens, total, status:'Pendente',
+    criadoPor: usuarioAtual?usuarioAtual.nome:'' };
   d.pedidos.push(pedido);
   closeModal(); saveWS(); renderAll();
   showToast('Pedido criado com sucesso.', 'good');
@@ -2857,6 +2928,7 @@ function cancelPedido(id){
   if(!confirm('Cancelar este pedido?')) return;
   const p = cur().pedidos.find(x=>x.id===id);
   p.status = 'Cancelado';
+  p.canceladoPor = usuarioAtual?usuarioAtual.nome:'';
   saveWS(); renderAll();
   showToast('Pedido cancelado.', 'good');
 }
@@ -3054,7 +3126,7 @@ function vendaTableHtml(lista){
   return `<table><thead><tr><th>Nº</th><th>Data</th><th>Itens</th><th>Total</th><th>Entregue</th><th></th></tr></thead>
     <tbody>${lista.map(v=>`
       <tr>
-        <td><span class="code-tag">${esc(v.numero)}</span></td><td>${fmtDate(v.data)}</td><td>${v.itens.length}</td>
+        <td><span class="code-tag">${esc(v.numero)}</span>${(v.criadoPor||v.canceladoPor)?`<div class="l-sub">${v.canceladoPor?'Cancelado por '+esc(v.canceladoPor):(v.criadoPor?'Criado por '+esc(v.criadoPor):'')}</div>`:''}</td><td>${fmtDate(v.data)}</td><td>${v.itens.length}</td>
         <td class="mono">${fmtMoney(v.total)}</td>
         <td>${v.status==='Concluída'?`<button class="btn btn-sm ${v.entregue===false?'btn-ghost':'btn-accent'}" onclick="toggleEntregue('${v.id}')">${v.entregue===false?badgeHtml('warn','Não entregue'):badgeHtml('good','Entregue')}</button>`:'—'}</td>
         <td><div class="row-actions">
@@ -3259,7 +3331,8 @@ function saveVenda(e){
   const statusPagEl = document.getElementById('f_statuspagamento');
   const venda = { id: uid(), numero: nextCode('VD','vd'), pedidoId: null, cliente: clienteNome, empresaId: empresaMatch?empresaMatch.id:'',
     data: document.getElementById('f_data').value, formaPagamento: document.getElementById('f_pagamento').value,
-    desconto, itens, total: Math.max(0,subtotal-desconto), status:'Concluída', statusPagamento: statusPagEl?statusPagEl.value:'Pago', entregue: true };
+    desconto, itens, total: Math.max(0,subtotal-desconto), status:'Concluída', statusPagamento: statusPagEl?statusPagEl.value:'Pago', entregue: true,
+    criadoPor: usuarioAtual?usuarioAtual.nome:'' };
   baixarEstoqueItens(itensValidos);
   d.vendas.push(venda);
   closeModal(); saveWS(); renderAll();
@@ -3271,6 +3344,7 @@ function cancelVenda(id){
   const v = d.vendas.find(x=>x.id===id);
   restaurarEstoqueItens(v.itens);
   v.status = 'Cancelada';
+  v.canceladoPor = usuarioAtual?usuarioAtual.nome:'';
   saveWS(); renderAll();
   showToast('Venda cancelada e estoque restaurado.', 'good');
 }
@@ -3379,9 +3453,13 @@ async function setGithubConfig(cfg){
 }
 async function openBackupModal(){
   const cfg = await getGithubConfig();
+  const tamanhoBytes = new Blob([JSON.stringify(DATA.etiquetag)+JSON.stringify(DATA.vimats)]).size;
+  const tamanhoKb = (tamanhoBytes/1024).toFixed(0);
+  const limiteAviso = tamanhoBytes > 3*1024*1024;
   openModal(`
     <div class="modal-head"><h3>Backup e Restauração</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Espaço usado pelos dados: <strong>${tamanhoKb} KB</strong>${limiteAviso?' <span style="color:#B23A3A;">— ficando grande, considere apagar fotos antigas do Catálogo</span>':''} (o navegador costuma permitir uns 5-10 MB no total).</p>
       <p class="hint" style="margin-top:0;">O backup baixa <strong>todos os dados</strong> — Etiquetag e Vimats juntos — num arquivo. Guarde esse arquivo em algum lugar seguro (Google Drive, WhatsApp pra você mesmo, etc.) de vez em quando. Se o celular quebrar, resetar, ou você trocar de aparelho, é esse arquivo que traz tudo de volta.</p>
       <button type="button" class="btn btn-accent" onclick="exportarBackup()" style="width:100%;margin-bottom:18px;">${iconCheck()} Baixar backup completo (.json)</button>
       <div style="border-top:1px solid var(--line);padding-top:16px;margin-bottom:16px;">
@@ -3391,6 +3469,7 @@ async function openBackupModal(){
       <div style="border-top:1px solid var(--line);padding-top:16px;">
         <h4 style="margin:0 0 6px;font-family:'Space Grotesk';">Sincronizar entre celulares via GitHub</h4>
         <p class="hint" style="margin-top:0;">Use um <strong>repositório privado</strong> só pra isso (não o mesmo que hospeda o site). No celular A, toque "Enviar"; no celular B, toque "Puxar" pra trazer os dados mais recentes. Não é automático — é manual, um clique de cada vez, então sempre envie antes de trocar de aparelho.</p>
+        ${(cfg.ultimoEnvio||cfg.ultimoPuxar) ? `<p class="hint" style="margin-top:0;">${cfg.ultimoEnvio?'Último envio: <strong>'+fmtDateTime(cfg.ultimoEnvio)+'</strong>. ':''}${cfg.ultimoPuxar?'Última vez que puxou: <strong>'+fmtDateTime(cfg.ultimoPuxar)+'</strong>.':''}</p>` : ''}
         <div class="field"><label>Token de acesso pessoal do GitHub</label><input type="password" id="f_ghtoken" value="${esc(cfg.token)}" placeholder="ghp_..."></div>
         <div class="field"><label>Repositório (usuário/repo)</label><input id="f_ghrepo" value="${esc(cfg.repo)}" placeholder="Ex.: seuusuario/estoque-dados"></div>
         <div class="field"><label>Nome do arquivo</label><input id="f_ghpath" value="${esc(cfg.path||'backup.json')}" placeholder="backup.json"></div>
@@ -3409,7 +3488,6 @@ async function githubEnviarBackup(){
   const repo = document.getElementById('f_ghrepo').value.trim();
   const path = document.getElementById('f_ghpath').value.trim() || 'backup.json';
   if(!token || !repo){ showToast('Preencha o token e o repositório.', 'bad'); return; }
-  await setGithubConfig({token, repo, path});
   const backup = { versao: 1, dataExportacao: new Date().toISOString(), etiquetag: DATA.etiquetag, vimats: DATA.vimats };
   const content = btoa(unescape(encodeURIComponent(JSON.stringify(backup, null, 2))));
   const url = `https://api.github.com/repos/${repo}/contents/${encodeURIComponent(path)}`;
@@ -3424,7 +3502,11 @@ async function githubEnviarBackup(){
       headers: { 'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json', 'Content-Type':'application/json' },
       body: JSON.stringify({ message:'Backup Estoque Central - '+new Date().toLocaleString('pt-BR'), content, sha: sha||undefined })
     });
-    if(putResp.ok){ showToast('Backup enviado para o GitHub com sucesso!', 'good'); }
+    if(putResp.ok){
+      await setGithubConfig({token, repo, path, ultimoEnvio: new Date().toISOString(), ultimoPuxar: (await getGithubConfig()).ultimoPuxar||''});
+      showToast('Backup enviado para o GitHub com sucesso!', 'good');
+      openBackupModal();
+    }
     else { const err = await putResp.json().catch(()=>({})); showToast('Erro ao enviar: '+(err.message||putResp.status), 'bad'); }
   } catch(e){ showToast('Não foi possível conectar ao GitHub. Verifique sua internet.', 'bad'); }
 }
@@ -3433,7 +3515,6 @@ async function githubPuxarBackup(){
   const repo = document.getElementById('f_ghrepo').value.trim();
   const path = document.getElementById('f_ghpath').value.trim() || 'backup.json';
   if(!token || !repo){ showToast('Preencha o token e o repositório.', 'bad'); return; }
-  await setGithubConfig({token, repo, path});
   const url = `https://api.github.com/repos/${repo}/contents/${encodeURIComponent(path)}`;
   showToast('Buscando backup no GitHub...', 'good');
   try{
@@ -3448,6 +3529,7 @@ async function githubPuxarBackup(){
     DATA.vimats = migrateIfNeeded('vimats', parsed.vimats);
     await appStorage.set(WS_META.etiquetag.storageKey, JSON.stringify(DATA.etiquetag), false);
     await appStorage.set(WS_META.vimats.storageKey, JSON.stringify(DATA.vimats), false);
+    await setGithubConfig({token, repo, path, ultimoPuxar: new Date().toISOString(), ultimoEnvio: (await getGithubConfig()).ultimoEnvio||''});
     closeModal();
     showToast('Dados atualizados a partir do GitHub!', 'good');
     renderAll();
@@ -3638,14 +3720,74 @@ function printDocument(html, text){
   setTimeout(()=>window.print(), 50);
 }
 
+let usuarios = [];
+let usuarioAtual = null;
+async function loadUsuarios(){
+  try{ const r = await appStorage.get('usuarios-config', false); const parsed = (r&&r.value)?JSON.parse(r.value):{usuarios:[]}; usuarios = parsed.usuarios||[]; }
+  catch(e){ usuarios = []; }
+}
+async function saveUsuarios(){
+  try{ await appStorage.set('usuarios-config', JSON.stringify({usuarios}), false); } catch(e){}
+}
+function abrirSeletorUsuario(obrigatorio){
+  openModal(`
+    <div class="modal-head"><h3>Quem está usando o app?</h3>${obrigatorio?'':'<button class="icon-btn" onclick="closeModal()">'+iconX()+'</button>'}</div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Isso ajuda a saber quem fez cada pedido, venda ou produção. <strong>Não é uma senha de segurança</strong> — qualquer pessoa com o link ainda consegue abrir e usar o app normalmente.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${usuarios.map(u=>`<button type="button" class="btn btn-ghost" style="justify-content:flex-start;" onclick="selecionarUsuario('${u.id}')">${esc(u.nome)}</button>`).join('') || '<p class="hint">Nenhuma pessoa cadastrada ainda.</p>'}
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" style="margin-top:10px;" onclick="abrirNovoUsuarioForm()">${iconPlus()} Adicionar pessoa</button>
+    </div>
+    ${obrigatorio?'':'<div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="continuarSemUsuario()">Continuar sem me identificar</button></div>'}
+  `);
+}
+function continuarSemUsuario(){ closeModal(); }
+function selecionarUsuario(id){
+  usuarioAtual = usuarios.find(u=>u.id===id) || null;
+  closeModal();
+  renderAll();
+  showToast('Olá, '+(usuarioAtual?usuarioAtual.nome:'')+'!', 'good');
+}
+function abrirNovoUsuarioForm(){
+  openModal(`
+    <div class="modal-head"><h3>Nova pessoa</h3><button class="icon-btn" onclick="abrirSeletorUsuario(false)">${iconX()}</button></div>
+    <form onsubmit="salvarNovoUsuario(event)">
+      <div class="modal-body">
+        <div class="field"><label>Nome</label><input required id="f_usuarionome" placeholder="Ex.: Mateus"></div>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="abrirSeletorUsuario(false)">Voltar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
+    </form>`);
+}
+async function salvarNovoUsuario(e){
+  e.preventDefault();
+  const nome = document.getElementById('f_usuarionome').value.trim();
+  if(!nome) return;
+  const novo = {id:uid(), nome};
+  usuarios.push(novo);
+  await saveUsuarios();
+  usuarioAtual = novo;
+  closeModal();
+  renderAll();
+  showToast('Bem-vindo(a), '+nome+'!', 'good');
+}
+function excluirUsuario(id){
+  if(!confirm('Excluir esta pessoa da lista?')) return;
+  usuarios = usuarios.filter(u=>u.id!==id);
+  if(usuarioAtual && usuarioAtual.id===id) usuarioAtual = null;
+  saveUsuarios();
+  renderAll();
+}
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
 }
 (async function init(){
   document.getElementById('content').innerHTML = `<div class="empty"><p>Carregando dados...</p></div>`;
   await loadAll();
+  await loadUsuarios();
   document.body.className = 'ws-'+ws;
   renderAll();
+  if(usuarios.length) abrirSeletorUsuario(false);
 })();
 </script>
 </body>
