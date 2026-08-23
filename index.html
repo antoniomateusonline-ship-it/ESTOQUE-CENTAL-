@@ -276,6 +276,10 @@
     </div>
     <nav class="nav" id="navList"></nav>
     <div class="sidebar-footer">
+      <button class="nav-item" onclick="openBackupModal()">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>
+        Backup
+      </button>
       <button class="nav-item" onclick="openConfigModal()">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         Dados da empresa
@@ -381,6 +385,7 @@ function migrateIfNeeded(wsKey, raw){
     if(it.composicaoId===undefined) it.composicaoId = '';
     if(it.recPadraoId===undefined) it.recPadraoId = '';
     if(it.outroTipo===undefined) it.outroTipo = '';
+    if(!it.historicoPrecos) it.historicoPrecos = [];
     if(it.outroPronto===undefined) it.outroPronto = false;
     if(it.metrosPorRolo===undefined) it.metrosPorRolo = it.tipo==='Ribbon' ? 300 : 0;
   });
@@ -599,7 +604,7 @@ function renderWsBar(){
 }
 function switchWs(newWs){
   if(ws===newWs) return;
-  ws = newWs; document.body.className = 'ws-'+ws; section = 'dashboard'; estoqueFiltro='todos'; financeiroEmpresaSelecionada=''; fechamentoMesSelecionado='';
+  ws = newWs; document.body.className = 'ws-'+ws; section = 'dashboard'; estoqueFiltro='todos'; financeiroEmpresaSelecionada=''; fechamentoMesSelecionado=''; buscaEstoque=''; buscaPedidos=''; buscaVendas='';
   renderAll();
 }
 
@@ -636,6 +641,26 @@ function renderNav(){
 }
 function goTo(s){ section = s; renderAll(); }
 function setFiltro(f){ estoqueFiltro = f; renderAll(); }
+let buscaEstoque = '';
+let buscaPedidos = '';
+let buscaVendas = '';
+function reRenderKeepingFocus(renderFn){
+  const active = document.activeElement;
+  const id = active && active.id;
+  const selStart = (active && typeof active.selectionStart==='number') ? active.selectionStart : null;
+  const selEnd = (active && typeof active.selectionEnd==='number') ? active.selectionEnd : null;
+  renderFn();
+  if(id){
+    const el = document.getElementById(id);
+    if(el){ el.focus(); if(selStart!=null && el.setSelectionRange){ try{ el.setSelectionRange(selStart, selEnd); }catch(e){} } }
+  }
+}
+function setBuscaEstoque(v){ buscaEstoque = v; reRenderKeepingFocus(renderAll); }
+function setBuscaPedidos(v){ buscaPedidos = v; reRenderKeepingFocus(renderAll); }
+function setBuscaVendas(v){ buscaVendas = v; reRenderKeepingFocus(renderAll); }
+function searchBoxHtml(id, value, placeholder, onFn){
+  return `<input type="text" id="${id}" value="${esc(value)}" placeholder="${placeholder}" oninput="${onFn}(this.value)" style="max-width:220px;">`;
+}
 function setTopbar(title, sub, actionsHtml){
   document.getElementById('pageTitle').textContent = title;
   document.getElementById('pageSub').textContent = sub;
@@ -647,19 +672,20 @@ function renderAll(){
   const isEtq = ws==='etiquetag';
   if(section==='dashboard'){ setTopbar('Painel', 'Visão geral do estoque e produção'); c.innerHTML = renderDashboard(); }
   else if(section==='estoque'){ setTopbar('Estoque', isEtq ? 'Matéria-prima e produtos prontos, separados' : 'Itens disponíveis para venda',
-    isEtq ? `<div style="display:flex;gap:8px;flex-wrap:wrap;">
+    (isEtq ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+       ${searchBoxHtml('buscaEstoqueInput', buscaEstoque, 'Buscar por nome ou código...', 'setBuscaEstoque')}
        <button class="btn btn-ghost" onclick="printEstoque('materiaprima')">${iconPrint()} Imprimir matéria-prima</button>
        <button class="btn btn-ghost" onclick="printEstoque('prontos')">${iconPrint()} Imprimir produtos prontos</button>
        <button class="btn btn-accent" onclick="openEstoqueForm()">${iconPlus()} Novo item</button></div>`
-     : `<div style="display:flex;gap:8px;"><button class="btn btn-ghost" onclick="printEstoque('todos')">${iconPrint()} Imprimir estoque</button>
-     <button class="btn btn-accent" onclick="openEstoqueForm()">${iconPlus()} Novo item</button></div>`);
+     : `<div style="display:flex;gap:8px;align-items:center;">${searchBoxHtml('buscaEstoqueInput', buscaEstoque, 'Buscar por nome ou código...', 'setBuscaEstoque')}<button class="btn btn-ghost" onclick="printEstoque('todos')">${iconPrint()} Imprimir estoque</button>
+     <button class="btn btn-accent" onclick="openEstoqueForm()">${iconPlus()} Novo item</button></div>`));
     c.innerHTML = renderEstoque(); }
   else if(section==='catalogo'){ setTopbar('Catálogo', 'Vitrine visual dos produtos, com fotos',
     `<button class="btn btn-ghost" onclick="printCatalogo()">${iconPrint()} Imprimir catálogo</button>`); c.innerHTML = renderCatalogo(); }
   else if(section==='pedidos'){ setTopbar('Pedidos','Pedidos de clientes, antes da venda',
-    `<button class="btn btn-accent" onclick="openPedidoForm()">${iconPlus()} Novo pedido</button>`); c.innerHTML = renderPedidos(); }
+    `<div style="display:flex;gap:8px;align-items:center;">${searchBoxHtml('buscaPedidosInput', buscaPedidos, 'Buscar por cliente ou nº...', 'setBuscaPedidos')}<button class="btn btn-accent" onclick="openPedidoForm()">${iconPlus()} Novo pedido</button></div>`); c.innerHTML = renderPedidos(); }
   else if(section==='vendas'){ setTopbar('Vendas','Vendas concluídas e comprovantes',
-    `<button class="btn btn-accent" onclick="openVendaForm()">${iconPlus()} Nova venda</button>`); c.innerHTML = renderVendas(); }
+    `<div style="display:flex;gap:8px;align-items:center;">${searchBoxHtml('buscaVendasInput', buscaVendas, 'Buscar por cliente ou nº...', 'setBuscaVendas')}<button class="btn btn-accent" onclick="openVendaForm()">${iconPlus()} Nova venda</button></div>`); c.innerHTML = renderVendas(); }
   else if(section==='financeiro'){ setTopbar('Financeiro','Vendas e pendências, organizadas por empresa', ''); c.innerHTML = renderFinanceiro(); }
   else if(section==='tamanhos'){ setTopbar(WS_META[ws].tamanhoNav, isEtq ? 'Tamanhos, numerações e empresas' : 'Tamanhos e empresas',
     ''); c.innerHTML = renderTamanhos(); }
@@ -673,6 +699,7 @@ function iconTrash(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width=
 function iconCheck(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M20 6L9 17l-5-5"/></svg>`; }
 function iconX(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4"><path d="M18 6L6 18M6 6l12 12"/></svg>`; }
 function iconAdjust(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>`; }
+function iconClock(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>`; }
 function iconFactory(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 21V10l6 4v-4l6 4V7l6 4v10H3z"/></svg>`; }
 function iconBox(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8"/></svg>`; }
 function iconRuler(){ return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 7l14 14M7 3l14 14M7 7l3 3M11 11l3 3M15 15l3 3"/></svg>`; }
@@ -788,6 +815,10 @@ function renderEstoque(){
       <button class="btn btn-accent" onclick="openEstoqueForm()">${iconPlus()} Novo item</button></div></div>`;
   }
   let items = [...d.estoque];
+  if(buscaEstoque.trim()){
+    const q = buscaEstoque.trim().toLowerCase();
+    items = items.filter(it=> (it.nome||'').toLowerCase().includes(q) || (it.codigo||'').toLowerCase().includes(q));
+  }
   items.sort((a,b)=>a.nome.localeCompare(b.nome));
 
   if(isEtq){
@@ -799,7 +830,8 @@ function renderEstoque(){
       <button class="btn btn-sm ${estoqueFiltro==='Outro'?'btn-accent':'btn-ghost'}" onclick="setFiltro('Outro')">Outros Materiais</button>
     </div>`;
     const ribbons = items.filter(x=>x.tipo==='Ribbon');
-    const tagMPs = items.filter(x=>x.tipo==='TagMP');
+    const tagMPsTag = items.filter(x=>x.tipo==='TagMP' && x.categoriaTag!=='Composição');
+    const tagMPsComposicao = items.filter(x=>x.tipo==='TagMP' && x.categoriaTag==='Composição');
     const tagsProntos = items.filter(x=>x.tipo==='Tag');
     const outros = items.filter(x=>x.tipo==='Outro');
     let out = filterBar;
@@ -809,7 +841,9 @@ function renderEstoque(){
     }
     if(estoqueFiltro==='todos' || estoqueFiltro==='TagMP'){
       out += `<div class="stock-group-title">📦 Tags em Branco (matéria-prima)</div>`;
-      out += tagMPs.length ? `<div class="stock-grid">${tagMPs.map(tagMpCardHtml).join('')}</div>` : `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhuma matéria-prima de tag cadastrada.</p></div></div>`;
+      out += tagMPsTag.length ? `<div class="stock-grid">${tagMPsTag.map(tagMpCardHtml).join('')}</div>` : `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhuma matéria-prima de tag cadastrada.</p></div></div>`;
+      out += `<div class="stock-group-title">🧾 Etiquetas de Composição em Branco (matéria-prima)</div>`;
+      out += tagMPsComposicao.length ? `<div class="stock-grid">${tagMPsComposicao.map(tagMpCardHtml).join('')}</div>` : `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhuma matéria-prima de etiqueta de composição cadastrada.</p></div></div>`;
     }
     if(estoqueFiltro==='todos' || estoqueFiltro==='Tag'){
       out += `<div class="stock-group-title">🏷️ Produtos Prontos</div>`;
@@ -827,9 +861,18 @@ function renderEstoque(){
           const totalUn = g.itens.reduce((s,p)=>s+p.quantidade,0);
           const valorTotal = g.itens.reduce((s,p)=>s+itemValorEstoque(p),0);
           const sub = g.itens.length ? `${g.itens.length} produto(s) · ${fmtQty(totalUn)} un. · Venda potencial: ${fmtMoney(valorTotal)}` : 'Nenhum produto pronto ainda';
-          const content = g.itens.length
-            ? [...g.itens].sort((a,b)=>a.nome.localeCompare(b.nome)).map(tagProntoListRowHtml).join('')
-            : `<div class="empty" style="padding:20px;"><p>Nenhum produto pronto para esta empresa ainda. Use "Produzir" numa matéria-prima.</p></div>`;
+          const tagsG = g.itens.filter(p=>p.categoriaTag!=='Composição');
+          const compG = g.itens.filter(p=>p.categoriaTag==='Composição');
+          let content;
+          if(!g.itens.length){
+            content = `<div class="empty" style="padding:20px;"><p>Nenhum produto pronto para esta empresa ainda. Use "Produzir" numa matéria-prima.</p></div>`;
+          } else {
+            content = '';
+            content += `<div style="padding:10px 4px 4px;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);">Tags Prontas</div>`;
+            content += tagsG.length ? [...tagsG].sort((a,b)=>a.nome.localeCompare(b.nome)).map(tagProntoListRowHtml).join('') : `<div class="empty" style="padding:14px;"><p>Nenhuma tag pronta.</p></div>`;
+            content += `<div style="padding:10px 4px 4px;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);">Etiquetas de Composição Prontas</div>`;
+            content += compG.length ? [...compG].sort((a,b)=>a.nome.localeCompare(b.nome)).map(tagProntoListRowHtml).join('') : `<div class="empty" style="padding:14px;"><p>Nenhuma etiqueta de composição pronta.</p></div>`;
+          }
           return collapsiblePanel('prontos-emp-'+g.key, esc(g.nome), sub, '', content);
         }).join('');
       } else {
@@ -838,11 +881,25 @@ function renderEstoque(){
     }
     if(estoqueFiltro==='todos' || estoqueFiltro==='Outro'){
       out += `<div class="stock-group-title">🧵 Outros Materiais</div>`;
-      out += outros.length ? `<div class="panel"><table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Pronto?</th><th>Estoque</th><th>Preço</th><th></th></tr></thead>
-      <tbody>${outros.map(it=>`<tr><td><span class="code-tag">${esc(it.codigo)}</span></td><td>${esc(it.nome)}</td><td>${esc(it.outroTipo)}</td><td>${it.outroPronto?'Sim':'Não'}</td><td>${fmtQty(it.quantidade)} ${esc(it.unidade)}</td><td class="mono">${fmtMoney(it.preco)}</td>
-        <td><div class="row-actions"><button class="icon-btn" title="Ajustar estoque" onclick="openAjusteModal('${it.id}')">${iconAdjust()}</button><button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
-        <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table></div>`
-        : `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhum outro material cadastrado ainda.</p></div></div>`;
+      const gruposOutro = {};
+      outros.forEach(it=>{
+        const chave = it.outroTipo || 'Sem tipo definido';
+        if(!gruposOutro[chave]) gruposOutro[chave] = [];
+        gruposOutro[chave].push(it);
+      });
+      const chaves = Object.keys(gruposOutro).sort((a,b)=>a.localeCompare(b));
+      if(chaves.length){
+        out += chaves.map(chave=>{
+          const lista = gruposOutro[chave];
+          const tabela = `<div class="panel"><table><thead><tr><th>Código</th><th>Nome</th><th>Pronto?</th><th>Estoque</th><th>Preço</th><th></th></tr></thead>
+          <tbody>${lista.map(it=>`<tr><td><span class="code-tag">${esc(it.codigo)}</span></td><td>${esc(it.nome)}</td><td>${it.outroPronto?'Sim':'Não'}</td><td>${fmtQty(it.quantidade)} ${esc(it.unidade)}</td><td class="mono">${fmtMoney(it.preco)}</td>
+            <td><div class="row-actions"><button class="icon-btn" title="Ajustar estoque" onclick="openAjusteModal('${it.id}')">${iconAdjust()}</button><button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
+            <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table></div>`;
+          return `<div style="padding:10px 4px 6px;font-size:13px;font-weight:700;font-family:'Space Grotesk';">${esc(chave)}</div>${tabela}`;
+        }).join('');
+      } else {
+        out += `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhum outro material cadastrado ainda.</p></div></div>`;
+      }
     }
     return out;
   }
@@ -1369,10 +1426,37 @@ function saveEstoque(e){
     preco: (isEtq && tipo==='Ribbon') ? (window._custoRibbonCalculado||0) : (document.getElementById('f_preco') ? (parseFloat(document.getElementById('f_preco').value)||0) : 0),
     vendavel: isEtq ? (tipo==='Tag' || tipo==='Outro') : true,
   };
-  if(editingId){ Object.assign(d.estoque.find(x=>x.id===editingId), data); }
-  else { data.id = uid(); const info = itemCodeInfo(tipo); data.codigo = nextCode(info.prefix, info.key); d.estoque.push(data); }
+  if(editingId){
+    const itemExistente = d.estoque.find(x=>x.id===editingId);
+    if(itemExistente){
+      if(!itemExistente.historicoPrecos) itemExistente.historicoPrecos = [];
+      if(itemExistente.preco!==data.preco || itemExistente.custo!==data.custo){
+        itemExistente.historicoPrecos.push({ data: todayISO(), custo: itemExistente.custo, preco: itemExistente.preco });
+        if(itemExistente.historicoPrecos.length>30) itemExistente.historicoPrecos = itemExistente.historicoPrecos.slice(-30);
+      }
+      Object.assign(itemExistente, data);
+    }
+  }
+  else { data.id = uid(); data.historicoPrecos = []; const info = itemCodeInfo(tipo); data.codigo = nextCode(info.prefix, info.key); d.estoque.push(data); }
   closeModal(); saveWS(); renderAll();
   showToast('Salvo com sucesso.', 'good');
+}
+function openHistoricoPrecoModal(itemId){
+  const d = cur();
+  const it = d.estoque.find(x=>x.id===itemId);
+  if(!it) return;
+  const hist = [...(it.historicoPrecos||[])].reverse();
+  openModal(`
+    <div class="modal-head"><h3>Histórico de preço · ${esc(it.nome)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Cada linha mostra o custo e o preço que valeram até a data indicada.</p>
+      <table><thead><tr><th>Válido até</th><th>Custo</th><th>Preço</th></tr></thead>
+      <tbody>${hist.length ? hist.map(h=>`<tr><td>${fmtDate(h.data)}</td><td class="mono">${fmtMoney3(h.custo)}</td><td class="mono">${fmtMoney3(h.preco)}</td></tr>`).join('') : '<tr><td colspan="3">Nenhuma alteração registrada ainda.</td></tr>'}
+      <tr style="font-weight:700;"><td>Atual</td><td class="mono">${fmtMoney3(it.custo)}</td><td class="mono">${fmtMoney3(it.preco)}</td></tr></tbody>
+      </table>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `);
 }
 function deleteEstoqueItem(id){
   const d = cur();
@@ -1750,7 +1834,7 @@ function renderTamanhos(){
       const tipoTxt = isEtq ? (it.tipo==='Ribbon'?'Ribbon':it.tipo==='TagMP'?'Matéria-prima':'Produto pronto') : (it.categoria||'Item');
       const precoTxt = isEtq ? (it.tipo==='Ribbon'?fmtMoney(it.preco)+'/m':it.tipo==='TagMP'?fmtMoney(it.custo)+'/rolo (custo)':fmtMoney(it.preco)+'/milheiro') : fmtMoney(it.preco);
       return `<tr><td><span class="code-tag">${esc(it.codigo)}</span></td><td>${esc(tagFullLabel(it))}</td><td>${esc(tipoTxt)}</td><td>${fmtQty(it.quantidade)} ${esc(it.unidade)}</td><td class="mono">${precoTxt}</td>
-      <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
+      <td><div class="row-actions"><button class="icon-btn" title="Histórico de preço" onclick="openHistoricoPrecoModal('${it.id}')">${iconClock()}</button><button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
       <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button></div></td></tr>`;
     }).join('')}</tbody></table>`
     : `<div class="empty" style="padding:24px;"><p>Nenhum material cadastrado ainda.</p></div>`);
@@ -2246,13 +2330,18 @@ function renderPedidos(){
       <p>Crie um pedido para um cliente antes de fechar a venda.</p>
       <button class="btn btn-accent" onclick="openPedidoForm()">${iconPlus()} Novo pedido</button></div></div>`;
   }
+  let pedidosBase = d.pedidos;
+  if(buscaPedidos.trim()){
+    const q = buscaPedidos.trim().toLowerCase();
+    pedidosBase = pedidosBase.filter(p=> (p.cliente||'').toLowerCase().includes(q) || (p.numero||'').toLowerCase().includes(q));
+  }
   const grupos = [
     { key:'pedidos-pendentes', titulo:'Pedidos Pendentes', status:'Pendente' },
     { key:'pedidos-concluidos', titulo:'Pedidos Concluídos', status:'Concluído' },
     { key:'pedidos-cancelados', titulo:'Pedidos Cancelados', status:'Cancelado' },
   ];
   return grupos.map(g=>{
-    const lista = d.pedidos.filter(p=>p.status===g.status).sort((a,b)=>new Date(b.data)-new Date(a.data));
+    const lista = pedidosBase.filter(p=>p.status===g.status).sort((a,b)=>new Date(b.data)-new Date(a.data));
     const content = lista.length ? `<table>
       <thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Itens</th><th>Total</th><th></th></tr></thead>
       <tbody>${lista.map(p=>`
@@ -2982,7 +3071,12 @@ function renderVendas(){
   const gruposEmp = {};
   (d.empresas||[]).forEach(e=>{ gruposEmp[e.id] = { key:e.id, nome:e.nome, vendas:[] }; });
   const semEmpresa = { key:'__sem__', nome:'Sem '+termEmpresa().toLowerCase()+' definido(a)', vendas:[] };
-  d.vendas.forEach(v=>{
+  let vendasBase = d.vendas;
+  if(buscaVendas.trim()){
+    const q = buscaVendas.trim().toLowerCase();
+    vendasBase = vendasBase.filter(v=> (v.cliente||'').toLowerCase().includes(q) || (v.numero||'').toLowerCase().includes(q));
+  }
+  vendasBase.forEach(v=>{
     if(v.empresaId && gruposEmp[v.empresaId]) gruposEmp[v.empresaId].vendas.push(v);
     else semEmpresa.vendas.push(v);
   });
@@ -3271,6 +3365,124 @@ function printTeste(){
   const text = buildReceiptText('Comprovante de teste','TESTE-0001', ['Cliente: Cliente de teste','Data: '+fmtDate(todayISO())],
     [{nome:'Item de exemplo', unidade:'un', quantidade:2, precoUnit:10, subtotal:20}], ['Total: '+fmtMoney(20)]);
   printDocument(html, text);
+}
+async function getGithubConfig(){
+  try{ const r = await appStorage.get('github-sync-config', false); return (r && r.value) ? JSON.parse(r.value) : {token:'', repo:'', path:'backup.json'}; }
+  catch(e){ return {token:'', repo:'', path:'backup.json'}; }
+}
+async function setGithubConfig(cfg){
+  try{ await appStorage.set('github-sync-config', JSON.stringify(cfg), false); } catch(e){}
+}
+async function openBackupModal(){
+  const cfg = await getGithubConfig();
+  openModal(`
+    <div class="modal-head"><h3>Backup e Restauração</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">O backup baixa <strong>todos os dados</strong> — Etiquetag e Vimats juntos — num arquivo. Guarde esse arquivo em algum lugar seguro (Google Drive, WhatsApp pra você mesmo, etc.) de vez em quando. Se o celular quebrar, resetar, ou você trocar de aparelho, é esse arquivo que traz tudo de volta.</p>
+      <button type="button" class="btn btn-accent" onclick="exportarBackup()" style="width:100%;margin-bottom:18px;">${iconCheck()} Baixar backup completo (.json)</button>
+      <div style="border-top:1px solid var(--line);padding-top:16px;margin-bottom:16px;">
+        <p class="hint" style="margin-top:0;"><strong>Restaurar um backup</strong> — isso substitui TODOS os dados atuais (Etiquetag e Vimats) pelos do arquivo escolhido. Use com cuidado.</p>
+        <input type="file" accept="application/json,.json" id="f_backupfile" onchange="importarBackupFile(this)">
+      </div>
+      <div style="border-top:1px solid var(--line);padding-top:16px;">
+        <h4 style="margin:0 0 6px;font-family:'Space Grotesk';">Sincronizar entre celulares via GitHub</h4>
+        <p class="hint" style="margin-top:0;">Use um <strong>repositório privado</strong> só pra isso (não o mesmo que hospeda o site). No celular A, toque "Enviar"; no celular B, toque "Puxar" pra trazer os dados mais recentes. Não é automático — é manual, um clique de cada vez, então sempre envie antes de trocar de aparelho.</p>
+        <div class="field"><label>Token de acesso pessoal do GitHub</label><input type="password" id="f_ghtoken" value="${esc(cfg.token)}" placeholder="ghp_..."></div>
+        <div class="field"><label>Repositório (usuário/repo)</label><input id="f_ghrepo" value="${esc(cfg.repo)}" placeholder="Ex.: seuusuario/estoque-dados"></div>
+        <div class="field"><label>Nome do arquivo</label><input id="f_ghpath" value="${esc(cfg.path||'backup.json')}" placeholder="backup.json"></div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button type="button" class="btn btn-accent" style="flex:1;" onclick="githubEnviarBackup()">${iconCheck()} Enviar para o GitHub</button>
+          <button type="button" class="btn btn-ghost" style="flex:1;" onclick="githubPuxarBackup()">${iconAdjust()} Puxar do GitHub</button>
+        </div>
+        <p class="hint">O token fica salvo só neste navegador. Crie um token com permissão apenas de "Contents" no repositório escolhido (fine-grained token), pra limitar o acesso.</p>
+      </div>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
+  `);
+}
+async function githubEnviarBackup(){
+  const token = document.getElementById('f_ghtoken').value.trim();
+  const repo = document.getElementById('f_ghrepo').value.trim();
+  const path = document.getElementById('f_ghpath').value.trim() || 'backup.json';
+  if(!token || !repo){ showToast('Preencha o token e o repositório.', 'bad'); return; }
+  await setGithubConfig({token, repo, path});
+  const backup = { versao: 1, dataExportacao: new Date().toISOString(), etiquetag: DATA.etiquetag, vimats: DATA.vimats };
+  const content = btoa(unescape(encodeURIComponent(JSON.stringify(backup, null, 2))));
+  const url = `https://api.github.com/repos/${repo}/contents/${encodeURIComponent(path)}`;
+  showToast('Enviando para o GitHub...', 'good');
+  try{
+    let sha = null;
+    const getResp = await fetch(url, { headers: { 'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json' } });
+    if(getResp.status===200){ const getData = await getResp.json(); sha = getData.sha; }
+    else if(getResp.status!==404){ showToast('Erro ao verificar o arquivo (status '+getResp.status+').', 'bad'); return; }
+    const putResp = await fetch(url, {
+      method:'PUT',
+      headers: { 'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json', 'Content-Type':'application/json' },
+      body: JSON.stringify({ message:'Backup Estoque Central - '+new Date().toLocaleString('pt-BR'), content, sha: sha||undefined })
+    });
+    if(putResp.ok){ showToast('Backup enviado para o GitHub com sucesso!', 'good'); }
+    else { const err = await putResp.json().catch(()=>({})); showToast('Erro ao enviar: '+(err.message||putResp.status), 'bad'); }
+  } catch(e){ showToast('Não foi possível conectar ao GitHub. Verifique sua internet.', 'bad'); }
+}
+async function githubPuxarBackup(){
+  const token = document.getElementById('f_ghtoken').value.trim();
+  const repo = document.getElementById('f_ghrepo').value.trim();
+  const path = document.getElementById('f_ghpath').value.trim() || 'backup.json';
+  if(!token || !repo){ showToast('Preencha o token e o repositório.', 'bad'); return; }
+  await setGithubConfig({token, repo, path});
+  const url = `https://api.github.com/repos/${repo}/contents/${encodeURIComponent(path)}`;
+  showToast('Buscando backup no GitHub...', 'good');
+  try{
+    const resp = await fetch(url, { headers: { 'Authorization':'Bearer '+token, 'Accept':'application/vnd.github+json' } });
+    if(!resp.ok){ showToast('Não encontrei esse arquivo nesse repositório (status '+resp.status+').', 'bad'); return; }
+    const respData = await resp.json();
+    const jsonStr = decodeURIComponent(escape(atob(respData.content.replace(/\n/g,''))));
+    const parsed = JSON.parse(jsonStr);
+    if(!parsed.etiquetag || !parsed.vimats){ showToast('Arquivo encontrado, mas não é um backup válido.', 'bad'); return; }
+    if(!confirm('Isso vai SUBSTITUIR todos os dados atuais (Etiquetag e Vimats) pelos que estão no GitHub. Confirma?')) return;
+    DATA.etiquetag = migrateIfNeeded('etiquetag', parsed.etiquetag);
+    DATA.vimats = migrateIfNeeded('vimats', parsed.vimats);
+    await appStorage.set(WS_META.etiquetag.storageKey, JSON.stringify(DATA.etiquetag), false);
+    await appStorage.set(WS_META.vimats.storageKey, JSON.stringify(DATA.vimats), false);
+    closeModal();
+    showToast('Dados atualizados a partir do GitHub!', 'good');
+    renderAll();
+  } catch(e){ showToast('Não foi possível conectar ao GitHub. Verifique sua internet.', 'bad'); }
+}
+function exportarBackup(){
+  const backup = { versao: 1, dataExportacao: new Date().toISOString(), etiquetag: DATA.etiquetag, vimats: DATA.vimats };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'backup-estoque-central-'+todayISO().slice(0,10)+'.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  showToast('Backup baixado.', 'good');
+}
+function importarBackupFile(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async function(ev){
+    let parsed;
+    try{ parsed = JSON.parse(ev.target.result); }
+    catch(err){ showToast('Não foi possível ler esse arquivo — verifique se é um backup válido.', 'bad'); return; }
+    if(!parsed || !parsed.etiquetag || !parsed.vimats){ showToast('Arquivo de backup inválido ou incompleto.', 'bad'); return; }
+    if(!confirm('Isso vai SUBSTITUIR todos os dados atuais (Etiquetag e Vimats) pelos do backup. Essa ação não pode ser desfeita. Confirma?')) return;
+    DATA.etiquetag = migrateIfNeeded('etiquetag', parsed.etiquetag);
+    DATA.vimats = migrateIfNeeded('vimats', parsed.vimats);
+    try{
+      await appStorage.set(WS_META.etiquetag.storageKey, JSON.stringify(DATA.etiquetag), false);
+      await appStorage.set(WS_META.vimats.storageKey, JSON.stringify(DATA.vimats), false);
+    } catch(err){}
+    closeModal();
+    showToast('Backup restaurado com sucesso!', 'good');
+    renderAll();
+  };
+  reader.readAsText(file);
 }
 function openConfigModal(){
   const em = cur().empresa;
