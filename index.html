@@ -338,6 +338,7 @@ function migrateIfNeeded(wsKey, raw){
       e.recomendacoesPadroes = (e.usaRecomendacoesPadrao && (e.recomendacoesPadrao||[]).length) ? [{id:uid(), nome:'Padrão', recomendacoes:e.recomendacoesPadrao}] : [];
     }
     delete e.usaRecomendacoesPadrao; delete e.recomendacoesPadrao;
+    if(!e.composicoesPadroes) e.composicoesPadroes = [];
   });
   if(!raw.vendas) raw.vendas = [];
   raw.vendas.forEach(v=>{
@@ -1678,12 +1679,17 @@ function renderTamanhos(){
   let html = '';
 
   if(isEtq){
-    html += collapsiblePanel('cad-empresas', 'Empresas', 'Marcas/clientes para quem você confecciona ou vende. Cada empresa pode ter suas próprias referências.',
+    html += collapsiblePanel('cad-empresas', 'Empresas', 'Marcas/clientes para quem você confecciona ou vende. Cada empresa pode ter suas próprias referências, recomendações e composições.',
       `<button class="btn btn-accent btn-sm" onclick="openEmpresaForm()">${iconPlus()} Novo(a) ${termEmpresa().toLowerCase()}</button>`,
-      (d.empresas||[]).length ? `<table><thead><tr><th>${termEmpresa()}</th><th>CNPJ</th><th>Referências</th><th></th></tr></thead>
-      <tbody>${d.empresas.map(e=>`<tr><td>${esc(e.nome)}</td><td class="mono">${esc(e.cnpj)||'—'}</td><td class="mono">${(e.referencias||[]).length}</td>
-        <td><div class="row-actions"><button class="icon-btn" title="Referências" onclick="openReferenciasModal('${e.id}')">${iconTag2()}</button><button class="icon-btn" title="Editar" onclick="openEmpresaForm('${e.id}')">${iconEdit()}</button>
-        <button class="icon-btn" title="Excluir" onclick="deleteEmpresa('${e.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
+      (d.empresas||[]).length ? `<table><thead><tr><th>${termEmpresa()}</th><th>CNPJ</th><th>Referências</th><th>Recomendações</th><th>Composições</th><th></th></tr></thead>
+      <tbody>${d.empresas.map(e=>`<tr><td>${esc(e.nome)}</td><td class="mono">${esc(e.cnpj)||'—'}</td><td class="mono">${(e.referencias||[]).length}</td><td class="mono">${(e.recomendacoesPadroes||[]).length}</td><td class="mono">${(e.composicoesPadroes||[]).length}</td>
+        <td><div class="row-actions">
+          <button class="icon-btn" title="Referências" onclick="openReferenciasModal('${e.id}')">${iconTag2()}</button>
+          <button class="icon-btn" title="Recomendações" onclick="openRecomendacoesEmpresaModal('${e.id}')">${iconWarn()}</button>
+          <button class="icon-btn" title="Composições" onclick="openComposicoesEmpresaModal('${e.id}')">${iconBox()}</button>
+          <button class="icon-btn" title="Editar" onclick="openEmpresaForm('${e.id}')">${iconEdit()}</button>
+          <button class="icon-btn" title="Excluir" onclick="deleteEmpresa('${e.id}')">${iconTrash()}</button>
+        </div></td></tr>`).join('')}</tbody></table>`
       : `<div class="empty" style="padding:24px;"><p>Nenhuma empresa cadastrada.</p></div>`);
   } else {
     html += collapsiblePanel('cad-empresas', 'Clientes', 'Clientes para quem você vende.',
@@ -2052,8 +2058,7 @@ function openEmpresaForm(id){
   editingId = id || null;
   const d = cur();
   const isEtq = ws==='etiquetag';
-  const emp = id ? d.empresas.find(x=>x.id===id) : {nome:'', cnpj:'', recomendacoesPadroes:[]};
-  tempRecPadroes = JSON.parse(JSON.stringify(emp.recomendacoesPadroes||[]));
+  const emp = id ? d.empresas.find(x=>x.id===id) : {nome:'', cnpj:''};
   openModal(`
     <div class="modal-head"><h3>${id?'Editar':'Novo(a)'} ${termEmpresa().toLowerCase()}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <form onsubmit="saveEmpresa(event)">
@@ -2061,15 +2066,10 @@ function openEmpresaForm(id){
         <div class="field"><label>Nome ${isEtq?'da empresa / marca':'do cliente'}</label><input required id="f_nome" value="${esc(emp.nome)}" placeholder="${isEtq?'Ex.: Empresa X':'Ex.: Maria Silva'}"></div>
         ${isEtq ? `<div class="field"><label>CNPJ</label><input id="f_cnpj" value="${esc(emp.cnpj||'')}" placeholder="00.000.000/0001-00">
           <p class="hint">Usado na fabricação de Etiquetas de Composição para essa marca.</p></div>
-        <div class="field"><label>Padrões de recomendações desta marca (opcional)</label>
-          <p class="hint" style="margin-top:0;">Se a marca usa mais de um padrão (ex.: Verão, Inverno, Algodão), cadastre um para cada — na hora do pedido ou venda você escolhe qual se aplica.</p>
-          <div id="recPadroesBody"></div>
-          <button type="button" class="btn btn-ghost btn-sm" onclick="addRecPadrao()" style="margin-top:4px;">${iconPlus()} Adicionar padrão de recomendações</button>
-        </div>` : ''}
+        <p class="hint">Referências, Recomendações e Composições desta marca ficam nos botões da lista de empresas, depois de salvar.</p>` : ''}
       </div>
       <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
     </form>`);
-  renderRecPadroesBody();
 }
 function renderRecPadroesBody(){
   const body = document.getElementById('recPadroesBody');
@@ -2088,12 +2088,7 @@ function removeRecPadrao(idx){ tempRecPadroes.splice(idx,1); renderRecPadroesBod
 function updateRecPadraoNome(idx, value){ tempRecPadroes[idx].nome = value; }
 function saveEmpresa(e){
   e.preventDefault();
-  const data = { nome: document.getElementById('f_nome').value.trim(), cnpj: document.getElementById('f_cnpj') ? document.getElementById('f_cnpj').value.trim() : '',
-    recomendacoesPadroes: tempRecPadroes.map((p,idx)=>({
-      id: p.id||uid(),
-      nome: (p.nome||'').trim() || ('Padrão '+(idx+1)),
-      recomendacoes: Array.from(document.querySelectorAll('.f_recpadrao_'+idx+':checked')).map(el=>el.value)
-    })).filter(p=>p.recomendacoes.length) };
+  const data = { nome: document.getElementById('f_nome').value.trim(), cnpj: document.getElementById('f_cnpj') ? document.getElementById('f_cnpj').value.trim() : '' };
   const d = cur();
   if(!d.empresas) d.empresas = [];
   if(editingId){ Object.assign(d.empresas.find(x=>x.id===editingId), data); }
@@ -2108,6 +2103,83 @@ function deleteEmpresa(id){
   d.empresas = d.empresas.filter(x=>x.id!==id);
   saveWS(); renderAll();
   showToast('Empresa excluída.', 'good');
+}
+
+function openRecomendacoesEmpresaModal(empresaId){
+  const d = cur();
+  const emp = d.empresas.find(x=>x.id===empresaId);
+  tempRecPadroes = JSON.parse(JSON.stringify(emp.recomendacoesPadroes||[]));
+  openModal(`
+    <div class="modal-head"><h3>Recomendações · ${esc(emp.nome)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Se a marca usa mais de um padrão (ex.: Verão, Inverno, Algodão), cadastre um para cada — na hora do pedido ou venda você escolhe qual se aplica.</p>
+      <div id="recPadroesBody"></div>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="addRecPadrao()" style="margin-top:4px;">${iconPlus()} Adicionar padrão de recomendações</button>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-accent" onclick="saveRecomendacoesEmpresa('${empresaId}')">${iconCheck()} Salvar</button></div>
+  `);
+  renderRecPadroesBody();
+}
+function saveRecomendacoesEmpresa(empresaId){
+  const d = cur();
+  const emp = d.empresas.find(x=>x.id===empresaId);
+  emp.recomendacoesPadroes = tempRecPadroes.map((p,idx)=>({
+    id: p.id||uid(),
+    nome: (p.nome||'').trim() || ('Padrão '+(idx+1)),
+    recomendacoes: Array.from(document.querySelectorAll('.f_recpadrao_'+idx+':checked')).map(el=>el.value)
+  })).filter(p=>p.recomendacoes.length);
+  closeModal(); saveWS(); renderAll();
+  showToast('Recomendações salvas.', 'good');
+}
+
+let tempComposicoesEmpresa = [];
+function openComposicoesEmpresaModal(empresaId){
+  const d = cur();
+  const emp = d.empresas.find(x=>x.id===empresaId);
+  tempComposicoesEmpresa = JSON.parse(JSON.stringify(emp.composicoesPadroes||[]));
+  openModal(`
+    <div class="modal-head"><h3>Composições · ${esc(emp.nome)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Se a marca sempre usa as mesmas composições têxteis (ex.: 61% Algodão / 39% Poliéster), cadastre aqui para ter à mão na hora do pedido.</p>
+      <div id="composicoesEmpresaBody"></div>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="addComposicaoEmpresa()" style="margin-top:4px;">${iconPlus()} Adicionar composição</button>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-accent" onclick="saveComposicoesEmpresa('${empresaId}')">${iconCheck()} Salvar</button></div>
+  `);
+  renderComposicoesEmpresaBody();
+}
+function renderComposicoesEmpresaBody(){
+  const body = document.getElementById('composicoesEmpresaBody');
+  if(!body) return;
+  body.innerHTML = tempComposicoesEmpresa.map((perfil,pIdx)=>`
+    <div style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <strong style="font-size:12px;color:var(--ink-soft);">Composição ${pIdx+1}</strong>
+        <button type="button" class="icon-btn" title="Remover esta composição" onclick="removeComposicaoEmpresa(${pIdx})">${iconX()}</button>
+      </div>
+      ${(perfil.fibras||[]).map((f,fIdx)=>`
+        <div style="display:grid;grid-template-columns:90px 1fr 30px;gap:8px;align-items:center;margin-bottom:6px;">
+          <input type="text" value="${esc(f.percentual)}" placeholder="Ex: 61%" oninput="updateFibraEmpresaField(${pIdx},${fIdx},'percentual',this.value)">
+          <input type="text" value="${esc(f.fibra)}" placeholder="Ex: Algodão" oninput="updateFibraEmpresaField(${pIdx},${fIdx},'fibra',this.value)">
+          <button type="button" class="icon-btn" onclick="removeFibraEmpresaRow(${pIdx},${fIdx})">${iconX()}</button>
+        </div>`).join('')}
+      <button type="button" class="btn btn-ghost btn-sm" onclick="addFibraEmpresaRow(${pIdx})">${iconPlus()} Adicionar fibra</button>
+    </div>`).join('') || `<p class="hint" style="margin:0 0 6px;">Nenhuma composição ainda — clique em "Adicionar composição".</p>`;
+}
+function addComposicaoEmpresa(){ tempComposicoesEmpresa.push({id:uid(), fibras:[{percentual:'',fibra:''}]}); renderComposicoesEmpresaBody(); }
+function removeComposicaoEmpresa(pIdx){ tempComposicoesEmpresa.splice(pIdx,1); renderComposicoesEmpresaBody(); }
+function addFibraEmpresaRow(pIdx){ tempComposicoesEmpresa[pIdx].fibras.push({percentual:'',fibra:''}); renderComposicoesEmpresaBody(); }
+function removeFibraEmpresaRow(pIdx, fIdx){ tempComposicoesEmpresa[pIdx].fibras.splice(fIdx,1); renderComposicoesEmpresaBody(); }
+function updateFibraEmpresaField(pIdx, fIdx, field, value){ tempComposicoesEmpresa[pIdx].fibras[fIdx][field] = value; }
+function saveComposicoesEmpresa(empresaId){
+  const d = cur();
+  const emp = d.empresas.find(x=>x.id===empresaId);
+  emp.composicoesPadroes = tempComposicoesEmpresa.map(p=>({
+    id: p.id||uid(),
+    fibras: (p.fibras||[]).filter(f=>f.fibra&&f.fibra.trim()).map(f=>({percentual:(f.percentual||'').trim(), fibra:f.fibra.trim()}))
+  })).filter(p=>p.fibras.length);
+  closeModal(); saveWS(); renderAll();
+  showToast('Composições salvas.', 'good');
 }
 
 let tempReferencias = [];
@@ -2936,10 +3008,111 @@ function deleteVenda(id){
   const d = cur(); d.vendas = d.vendas.filter(x=>x.id!==id);
   saveWS(); renderAll(); showToast('Venda excluída.', 'good');
 }
+let vendaDraftItem = null;
+function novoVendaDraftItem(){ return {produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',referenciaCodigo:'',descricaoRef:'',composicaoId:'',recPadraoId:''}; }
+function updateVendaDraftMaterial(key){
+  vendaDraftItem.materialKey = key;
+  vendaDraftItem.produtoId = '';
+  vendaDraftItem.precoUnit = 0;
+  vendaDraftItem.composicaoId = '';
+  vendaDraftItem.recPadraoId = '';
+  renderVendaDraftArea();
+}
+function updateVendaDraftProduto(produtoId){
+  const prod = cur().estoque.find(p=>p.id===produtoId);
+  vendaDraftItem.produtoId = produtoId;
+  vendaDraftItem.precoUnit = prod ? (isTagProntoEtq(prod) ? prod.preco/1000 : prod.preco) : 0;
+  const tam = prod ? tamanhoObj(prod.tamanhoId) : null;
+  vendaDraftItem.composicaoId = prod && prod.composicaoId ? prod.composicaoId : ((tam && tam.composicao && (tam.composicoes||[]).length===1) ? tam.composicoes[0].id : '');
+  const emp = prod ? empresaObj(prod.empresaId) : null;
+  const perfisRec = emp ? (emp.recomendacoesPadroes||[]) : [];
+  vendaDraftItem.recPadraoId = prod && prod.recPadraoId ? prod.recPadraoId : (perfisRec.length===1 ? perfisRec[0].id : '');
+  renderVendaDraftArea();
+}
+function updateVendaDraftField(field, value){
+  if(field==='quantidade') vendaDraftItem.quantidade = parseFloat(value)||0;
+  else if(field==='precoUnit') vendaDraftItem.precoUnit = parseFloat(value)||0;
+  else if(field==='composicaoId') vendaDraftItem.composicaoId = value;
+  else if(field==='recPadraoId') vendaDraftItem.recPadraoId = value;
+  renderVendaDraftArea();
+}
+function updateVendaDraftReferencia(refId){
+  const ref = allReferenciasList().find(r=>r.id===refId);
+  vendaDraftItem.referenciaId = refId;
+  vendaDraftItem.referenciaCodigo = ref?ref.codigo:'';
+  vendaDraftItem.descricaoRef = ref?ref.descricao:'';
+  renderVendaDraftArea();
+}
+function confirmarItemVenda(){
+  if(!vendaDraftItem.produtoId || !(vendaDraftItem.quantidade>0)){ showToast('Selecione o produto e informe a quantidade.', 'bad'); return; }
+  formItens.push(JSON.parse(JSON.stringify(vendaDraftItem)));
+  vendaDraftItem = novoVendaDraftItem();
+  renderVendaDraftArea();
+  showToast('Item adicionado à venda.', 'good');
+}
+function removerItemVendaConfirmado(idx){ formItens.splice(idx,1); renderVendaDraftArea(); }
+function renderVendaDraftArea(){
+  const container = document.getElementById('vendaItensContainer');
+  if(!container) return;
+  const item = vendaDraftItem;
+  const vendaveis = cur().estoque.filter(x=>x.vendavel);
+  const groups = buildMaterialGroups(vendaveis);
+  const selGroup = groups.find(g=>g.key===item.materialKey);
+  const variantes = selGroup ? selGroup.itens : [];
+  const referencias = allReferenciasList();
+  const prodSel = item.produtoId ? cur().estoque.find(p=>p.id===item.produtoId) : null;
+
+  let html = `<div class="panel" style="padding:14px;margin-bottom:12px;">`;
+  if(referencias.length){
+    html += `<div class="field"><label>Referência (opcional)</label><select onchange="updateVendaDraftReferencia(this.value)">
+      <option value="">Nenhuma</option>
+      ${referencias.map(r=>`<option value="${r.id}" ${item.referenciaId===r.id?'selected':''}>${esc(r.empresaNome)} · ${esc(r.codigo)}</option>`).join('')}
+    </select>
+    <input type="text" readonly value="${esc(item.descricaoRef||'')}" placeholder="Descrição (automática)" style="margin-top:6px;"></div>`;
+  }
+  html += `<div class="field"><label>Material</label><select onchange="updateVendaDraftMaterial(this.value)">
+    <option value="">Selecione o material</option>
+    ${groups.map(g=>`<option value="${g.key}" ${item.materialKey===g.key?'selected':''}>${esc(materialGroupLabel(g))}</option>`).join('')}
+  </select></div>
+  <div class="field"><label>Tamanho</label><select onchange="updateVendaDraftProduto(this.value)" ${!selGroup?'disabled':''}>
+    <option value="">Tamanho</option>
+    ${variantes.map(p=>{ const num=numeracaoObj(p.numeracaoId); return `<option value="${p.id}" ${item.produtoId===p.id?'selected':''}>${num?esc(num.nome):'Único'} (${fmtQty(p.quantidade)} un.)</option>`; }).join('')}
+  </select></div>`;
+  if(prodSel) html += composicaoAlertaHtml(prodSel.tamanhoId, prodSel.empresaId, item.composicaoId, item.recPadraoId, -1, false);
+  html += `<div class="field-row">
+    <div class="field"><label>Quantidade</label><input type="number" min="0.001" step="0.001" value="${item.quantidade||''}" oninput="updateVendaDraftField('quantidade',this.value)"></div>
+    <div class="field"><label>Preço unitário</label><input type="number" min="0" step="0.001" value="${item.precoUnit||''}" oninput="updateVendaDraftField('precoUnit',this.value)"></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+    <div class="subtle">Subtotal deste item: <strong>${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</strong></div>
+    <button type="button" class="btn btn-accent btn-sm" onclick="confirmarItemVenda()">${iconPlus()} Adicionar item</button>
+  </div>
+  </div>`;
+
+  html += `<div class="field"><label>Itens já adicionados a esta venda (${formItens.length})</label>`;
+  html += formItens.length ? `<table><thead><tr><th>Produto</th><th>Qtd</th><th>Preço</th><th>Subtotal</th><th></th></tr></thead><tbody>
+      ${formItens.map((it,idx)=>{
+        const prod = cur().estoque.find(p=>p.id===it.produtoId);
+        const nome = prod ? tagFullLabel(prod) : 'Produto';
+        return `<tr><td>${esc(nome)}${it.descricaoRef?' — '+esc(it.descricaoRef):''}</td><td>${fmtQty(it.quantidade)}</td><td>${fmtMoney(it.precoUnit)}</td><td>${fmtMoney(it.quantidade*it.precoUnit)}</td>
+        <td><button type="button" class="icon-btn" title="Remover" onclick="removerItemVendaConfirmado(${idx})">${iconX()}</button></td></tr>`;
+      }).join('')}
+    </tbody></table>` : `<div class="empty" style="padding:16px;"><p>Nenhum item adicionado ainda — preencha acima e clique em "Adicionar item".</p></div>`;
+  html += `</div>`;
+
+  container.innerHTML = html;
+  const subtotalGeral = formItens.reduce((s,it)=>s+(it.quantidade||0)*(it.precoUnit||0),0);
+  const descEl = document.getElementById('f_desconto');
+  const desconto = descEl ? (parseFloat(descEl.value)||0) : 0;
+  const totalEl = document.getElementById('formTotal');
+  if(totalEl) totalEl.textContent = fmtMoney(Math.max(0,subtotalGeral-desconto));
+}
 function openVendaForm(){
   editingId = null;
   formContext = 'venda';
-  formItens = [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:'',recPadraoId:''}];
+  const isEtqCarrinho = ws==='etiquetag';
+  formItens = isEtqCarrinho ? [] : [{produtoId:'',materialKey:'',quantidade:1,precoUnit:0,referenciaId:'',descricaoRef:'',composicaoId:'',recPadraoId:''}];
+  vendaDraftItem = novoVendaDraftItem();
   const empresasCatalog = cur().empresas||[];
   openModal(`
     <div class="modal-head"><h3>Nova venda</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
@@ -2951,14 +3124,12 @@ function openVendaForm(){
           <div class="field"><label>Data</label><input required type="date" id="f_data" value="${new Date().toISOString().slice(0,10)}"></div>
         </div>
         <div class="field"><label>Itens da venda</label>
-          ${itemsHeadHtml()}
-          <div id="itensBody"></div>
-          <button type="button" class="btn btn-ghost btn-sm" onclick="addItem()" style="margin-top:4px;">${iconPlus()} Adicionar item</button>
+          ${isEtqCarrinho ? `<div id="vendaItensContainer"></div>` : `${itemsHeadHtml()}<div id="itensBody"></div><button type="button" class="btn btn-ghost btn-sm" onclick="addItem()" style="margin-top:4px;">${iconPlus()} Adicionar item</button>`}
         </div>
         <div class="field-row">
           <div class="field"><label>Forma de pagamento</label>
             <select id="f_pagamento"><option>Dinheiro</option><option>Pix</option><option>Cartão de débito</option><option>Cartão de crédito</option><option>Boleto</option></select></div>
-          <div class="field"><label>Desconto (R$)</label><input type="number" min="0" step="0.01" id="f_desconto" value="0" oninput="renderItensBody()"></div>
+          <div class="field"><label>Desconto (R$)</label><input type="number" min="0" step="0.01" id="f_desconto" value="0" oninput="${isEtqCarrinho?'renderVendaDraftArea()':'renderItensBody()'}"></div>
         </div>
         <div class="field"><label>Status de pagamento</label>
           <div class="radio-row"><label><input type="radio" name="f_statuspagamentoradio" value="Pago" checked onchange="document.getElementById('f_statuspagamento').value='Pago'"> Pago</label>
@@ -2968,7 +3139,7 @@ function openVendaForm(){
       </div>
       <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Registrar venda</button></div>
     </form>`);
-  renderItensBody();
+  if(isEtqCarrinho) renderVendaDraftArea(); else renderItensBody();
 }
 function saveVenda(e){
   e.preventDefault();
