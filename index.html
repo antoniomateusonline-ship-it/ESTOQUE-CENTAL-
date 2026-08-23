@@ -317,7 +317,7 @@ const WS_META = {
 let ws = 'etiquetag';
 let estoqueFiltro = 'todos';
 function emptyData(){
-  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[],
+  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[], outrosTipos:[],
     configImpressao:{formato:'a4', assinatura:true, documento:true}, seq:{pd:1,vd:1,rb:1,tm:1,tg:1,it:1} };
 }
 let DATA = { etiquetag: emptyData(), vimats: emptyData() };
@@ -448,10 +448,11 @@ async function loadAll(){
       for(const legacyKey of legacyKeys){
         try{
           const r2 = await appStorage.get(legacyKey, false);
-          if(r2 && r2.value){ DATA[k] = migrateIfNeeded(k, Object.assign(emptyData(), JSON.parse(r2.value))); break; }
+          if(r2 && r2.value){ DATA[k] = migrateIfNeeded(k, Object.assign(emptyData(), JSON.parse(r2.value))); got = true; break; }
         }catch(e2){ /* nada nesta chave legada */ }
       }
     }
+    if(!got){ DATA[k] = migrateIfNeeded(k, emptyData()); }
   }
   if(!DATA.etiquetag.tamanhos.length){
     DATA.etiquetag.tamanhos = [
@@ -3704,40 +3705,80 @@ function printEstoque(filtro){
   filtro = filtro || 'todos';
   const d = cur(); const isEtq = ws==='etiquetag';
   let body = '';
+  let textoLinhas = [];
   let titulo = 'Relatório de estoque';
   if(isEtq){
     const ribbons = d.estoque.filter(x=>x.tipo==='Ribbon');
-    const tagMPs = d.estoque.filter(x=>x.tipo==='TagMP');
-    const tagsProntos = d.estoque.filter(x=>x.tipo==='Tag');
+    const tagMPsTag = d.estoque.filter(x=>x.tipo==='TagMP' && x.categoriaTag!=='Composição');
+    const tagMPsComposicao = d.estoque.filter(x=>x.tipo==='TagMP' && x.categoriaTag==='Composição');
+    const tagsProntosTag = d.estoque.filter(x=>x.tipo==='Tag' && x.categoriaTag!=='Composição');
+    const tagsProntosComposicao = d.estoque.filter(x=>x.tipo==='Tag' && x.categoriaTag==='Composição');
+
     if(filtro==='materiaprima' || filtro==='todos'){
       titulo = filtro==='materiaprima' ? 'Relatório de matéria-prima' : titulo;
       body += `<h3 style="font-family:'Space Grotesk';margin-bottom:6px;">Ribbons</h3>
       <table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Qtd</th><th>Mín.</th><th>Custo/m</th><th>Valor total</th></tr></thead>
-      <tbody>${ribbons.map(m=>`<tr><td>${esc(m.codigo)}</td><td>${esc(m.nome)}</td><td>${esc(m.tipoRibbon)}</td><td>${fmtQty(m.quantidade)} ${esc(m.unidade)}</td><td>${fmtQty(m.estoqueMinimo)}</td><td>${fmtMoney(m.preco)}</td><td>${fmtMoney(m.quantidade*m.preco)}</td></tr>`).join('')||'<tr><td colspan="7">Nenhum item</td></tr>'}</tbody></table>
-      <h3 style="font-family:'Space Grotesk';margin-bottom:6px;margin-top:20px;">Tags em Branco (matéria-prima, inclui Etiquetas de Composição)</h3>
-      <table><thead><tr><th>Código</th><th>Nome</th><th>Tamanho</th><th>Rolos</th><th>Unidades</th><th>Custo/rolo</th><th>Valor total</th></tr></thead>
-      <tbody>${tagMPs.map(p=>{const tam=tamanhoObj(p.tamanhoId);return `<tr><td>${esc(p.codigo)}</td><td>${esc(p.nome)}</td><td>${esc(tam?tam.nome:'—')}</td><td>${fmtQty(p.quantidade)}</td><td>${fmtQty(tagEtiquetasDisponiveis(p))}</td><td>${fmtMoney(p.custo)}</td><td>${fmtMoney(p.quantidade*p.custo)}</td></tr>`;}).join('')||'<tr><td colspan="7">Nenhum item</td></tr>'}</tbody></table>`;
+      <tbody>${ribbons.map(m=>`<tr><td>${esc(m.codigo)}</td><td>${esc(m.nome)}</td><td><strong>${esc(m.tipoRibbon)}</strong></td><td>${fmtQty(m.quantidade)} ${esc(m.unidade)}</td><td>${fmtQty(m.estoqueMinimo)}</td><td>${fmtMoney(m.preco)}</td><td>${fmtMoney(m.quantidade*m.preco)}</td></tr>`).join('')||'<tr><td colspan="7">Nenhum item</td></tr>'}</tbody></table>`;
+      textoLinhas.push('--- RIBBONS ---');
+      ribbons.forEach(m=>textoLinhas.push(m.nome+' ['+m.tipoRibbon+']: '+fmtQty(m.quantidade)+' m'));
+
+      const tabelaTagMp = (lista, titulo2)=>{
+        body += `<h3 style="font-family:'Space Grotesk';margin-bottom:6px;margin-top:20px;">${titulo2}</h3>
+        <table><thead><tr><th>Código</th><th>Nome</th><th>Tamanho</th><th>Un./rolo</th><th>Em rolos</th><th>Em unidades</th><th>Custo/rolo</th><th>Valor total</th></tr></thead>
+        <tbody>${lista.map(p=>{const tam=tamanhoObj(p.tamanhoId); const upr=tam?(tam.unidadesPorRolo||0):0;
+          return `<tr><td>${esc(p.codigo)}</td><td>${esc(p.nome)}</td><td>${esc(tam?tam.nome:'—')}</td><td>${fmtQty(upr)}</td><td><strong>${fmtQty(p.quantidade)}</strong></td><td><strong>${fmtQty(tagEtiquetasDisponiveis(p))}</strong></td><td>${fmtMoney(p.custo)}</td><td>${fmtMoney(p.quantidade*p.custo)}</td></tr>`;
+        }).join('')||'<tr><td colspan="8">Nenhum item</td></tr>'}</tbody></table>`;
+        textoLinhas.push('--- '+titulo2.toUpperCase()+' ---');
+        lista.forEach(p=>{ const tam=tamanhoObj(p.tamanhoId); textoLinhas.push(p.nome+': '+fmtQty(p.quantidade)+' rolos ('+fmtQty(tagEtiquetasDisponiveis(p))+' unidades, '+fmtQty(tam?tam.unidadesPorRolo||0:0)+' un./rolo)'); });
+      };
+      tabelaTagMp(tagMPsTag, 'Tags em Branco (matéria-prima)');
+      tabelaTagMp(tagMPsComposicao, 'Etiquetas de Composição em Branco (matéria-prima)');
     }
+
     if(filtro==='prontos' || filtro==='todos'){
       titulo = filtro==='prontos' ? 'Relatório de produtos prontos' : titulo;
-      body += `<h3 style="font-family:'Space Grotesk';margin-bottom:6px;margin-top:20px;">Produtos Prontos</h3>
-      <table><thead><tr><th>Código</th><th>Item</th><th>Empresa</th><th>Unidades</th><th>Preço/milheiro</th><th>Valor total</th></tr></thead>
-      <tbody>${tagsProntos.map(p=>{const emp=empresaObj(p.empresaId);
-        return `<tr><td>${esc(p.codigo)}</td><td>${esc(tagFullLabel(p))}</td><td>${emp?esc(emp.nome):'—'}</td><td>${fmtQty(p.quantidade)}</td><td>${fmtMoney(p.preco)}</td><td>${fmtMoney(itemValorEstoque(p))}</td></tr>`;
-      }).join('')||'<tr><td colspan="6">Nenhum item</td></tr>'}</tbody></table>`;
+      const tabelaPronto = (lista, titulo2, comComposicao)=>{
+        body += `<h3 style="font-family:'Space Grotesk';margin-bottom:6px;margin-top:20px;">${titulo2}</h3>
+        <table><thead><tr><th>Código</th><th>Item</th><th>Empresa</th><th>Numeração</th><th>Quantidade</th>${comComposicao?'<th>Composição têxtil</th><th>Recomendações</th>':''}<th>Preço/milheiro</th><th>Valor total</th></tr></thead>
+        <tbody>${lista.map(p=>{
+          const emp = empresaObj(p.empresaId); const tam = tamanhoObj(p.tamanhoId); const num = numeracaoObj(p.numeracaoId);
+          let compCell = '', recCell = '';
+          if(comComposicao && tam){
+            const perfis = tam.composicoes||[];
+            const perfilAtivo = perfis.length===1 ? perfis[0] : perfis.find(x=>x.id===p.composicaoId);
+            compCell = `<td>${perfilAtivo?esc(formatComposicoes(perfilAtivo.fibras)):'—'}</td>`;
+            const recs = recomendacoesEfetivas(tam, p.empresaId, p.recPadraoId);
+            recCell = `<td>${recs.length?recs.map(r=>`<span title="${esc(r)}" style="margin-right:3px;">${iconCuidado(r,14)}</span>`).join(''):'—'}</td>`;
+          }
+          return `<tr><td>${esc(p.codigo)}</td><td>${esc(p.nome)}</td><td>${emp?esc(emp.nome):'—'}</td><td>${num?esc(num.nome):'—'}</td><td><strong>${fmtQty(p.quantidade)}</strong> un.</td>${comComposicao?compCell+recCell:''}<td>${fmtMoney(p.preco)}</td><td>${fmtMoney(itemValorEstoque(p))}</td></tr>`;
+        }).join('')||`<tr><td colspan="${comComposicao?8:6}">Nenhum item</td></tr>`}</tbody></table>`;
+        textoLinhas.push('--- '+titulo2.toUpperCase()+' ---');
+        lista.forEach(p=>{
+          const emp = empresaObj(p.empresaId); const num = numeracaoObj(p.numeracaoId); const tam = tamanhoObj(p.tamanhoId);
+          let linha = p.nome+' — '+(emp?emp.nome:'sem empresa')+' — '+(num?num.nome:'sem numeração')+': '+fmtQty(p.quantidade)+' un.';
+          if(comComposicao && tam){
+            const perfis = tam.composicoes||[];
+            const perfilAtivo = perfis.length===1 ? perfis[0] : perfis.find(x=>x.id===p.composicaoId);
+            if(perfilAtivo) linha += ' | Composição: '+formatComposicoes(perfilAtivo.fibras);
+            const recs = recomendacoesEfetivas(tam, p.empresaId, p.recPadraoId);
+            if(recs.length) linha += ' | Recomendações: '+recs.join(', ');
+          }
+          textoLinhas.push(linha);
+        });
+      };
+      tabelaPronto(tagsProntosTag, 'Tags Prontas', false);
+      tabelaPronto(tagsProntosComposicao, 'Etiquetas de Composição Prontas', true);
     }
   } else {
     body += `<table><thead><tr><th>Código</th><th>Nome</th><th>Categoria</th><th>Tamanho</th><th>Cor</th><th>${termEmpresa()}</th><th>Qtd</th><th>Mín.</th><th>Preço</th><th>Valor total</th></tr></thead>
     <tbody>${d.estoque.map(p=>{const tam=tamanhoObj(p.tamanhoId); const emp=empresaObj(p.empresaId);return `<tr><td>${esc(p.codigo)}</td><td>${esc(p.nome)}</td><td>${esc(p.categoria)}</td><td>${esc(tam?tam.nome:'—')}</td><td>${esc(p.cor)||'—'}</td><td>${emp?esc(emp.nome):''}</td><td>${fmtQty(p.quantidade)} ${esc(p.unidade)}</td><td>${fmtQty(p.estoqueMinimo)}</td><td>${fmtMoney(p.preco)}</td><td>${fmtMoney(itemValorEstoque(p))}</td></tr>`;}).join('')||'<tr><td colspan="10">Nenhum item</td></tr>'}</tbody></table>`;
+    d.estoque.forEach(p=>textoLinhas.push(p.nome+': '+fmtQty(p.quantidade)+' '+p.unidade));
   }
-  const html = `<div class="doc">${docHeadHtml(titulo+' · '+WS_META[ws].label, 'Emitido em '+fmtDate(todayISO()))}${body}
+  const docLinesHtml = `<div class="doc-lines">${textoLinhas.map(l=>l.startsWith('---')?`<div class="line" style="font-weight:700;margin-top:8px;"><span>${esc(l.replace(/---/g,'').trim())}</span><span></span></div>`:`<div class="line"><span>${esc(l)}</span><span></span></div>`).join('')}</div>`;
+  const html = `<div class="doc">${docHeadHtml(titulo+' · '+WS_META[ws].label, 'Emitido em '+fmtDate(todayISO()))}${body}${docLinesHtml}
     <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div><div></div></div></div>`;
-  const itensFiltrados = isEtq
-    ? (filtro==='materiaprima' ? d.estoque.filter(x=>x.tipo!=='Tag') : filtro==='prontos' ? d.estoque.filter(x=>x.tipo==='Tag') : d.estoque)
-    : d.estoque;
-  let text = cur().empresa.nome+'\n--------------------------------\n'+titulo.toUpperCase()+'\n--------------------------------\n';
-  itensFiltrados.forEach(it=>{ text += it.nome+': '+fmtQty(it.quantidade)+' '+it.unidade+'\n'; });
-  text += '--------------------------------\nEmitido em '+fmtDateTime(todayISO())+'\n\n\n';
+  let text = cur().empresa.nome+'\n--------------------------------\n'+titulo.toUpperCase()+'\n--------------------------------\n'+textoLinhas.join('\n');
+  text += '\n--------------------------------\nEmitido em '+fmtDateTime(todayISO())+'\n\n\n';
   printDocument(html, text);
 }
 function applyPrintPageStyle(formato){
