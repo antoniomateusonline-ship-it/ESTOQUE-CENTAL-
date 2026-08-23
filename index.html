@@ -1197,8 +1197,13 @@ function openEstoqueForm(id){
     </select>`;
 
   const modelosPronto = d.tamanhos.filter(t=> !!t.composicao === (tipoAtual==='Composicao'));
+  const empresaSelectHtmlPronto = `<select id="f_empresa" onchange="handleEmpresaSelect(this);atualizarCamposComposicaoPronto();">
+      <option value="">Nenhuma</option>
+      ${empresasCatalog.map(e=>`<option value="${e.id}" ${it.empresaId===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}
+      <option value="__new__">+ Novo(a) ${termEmpresa().toLowerCase()}...</option>
+    </select>`;
   const tagProntoFields = isEtq ? `<div id="tagProntoFields" style="display:${tipoAtualNorm==='Tag'?'block':'none'}">
-    <div class="field"><label>Empresa / Marca</label>${empresaSelectHtml}</div>
+    <div class="field"><label>Empresa / Marca</label>${empresaSelectHtmlPronto}</div>
     <div class="field"><label>Descrição do Produto</label><select id="f_descricaoproduto" onchange="updateDescricaoProduto()">
       <option value="">Selecione</option>
       ${modelosPronto.map(t=>`<option value="${t.id}" ${it.tamanhoId===t.id?'selected':''}>${esc(t.nome)}${t.dimensao?' ('+esc(t.dimensao)+')':''}</option>`).join('')}
@@ -1206,6 +1211,7 @@ function openEstoqueForm(id){
     <div class="field"><label>Numeração</label><select id="f_numeracao"><option value="">Nenhuma</option>
       ${(d.numeracoes||[]).map(n=>`<option value="${n.id}" ${it.numeracaoId===n.id?'selected':''}>${esc(n.nome)}</option>`).join('')}
     </select></div>
+    <div id="composicaoProntoFields"></div>
     <p class="hint">Normalmente este produto é gerado automaticamente pela ação "Produzir". Use este formulário para ajustes manuais. A descrição, numeração e preço vêm do cadastro em Modelos.</p>
     </div>` : '';
 
@@ -1259,6 +1265,7 @@ function openEstoqueForm(id){
   `);
   updatePricingPreview();
   updateRibbonCusto();
+  if(isEtq && tipoAtualNorm==='Tag') atualizarCamposComposicaoPronto(it);
 }
 function handleFotoUpload(input){
   const file = input.files && input.files[0];
@@ -1323,6 +1330,7 @@ function toggleTipoItem(tipoRadio){
   }
   refreshModeloOptions('f_descricaomp', isComposicao);
   refreshModeloOptions('f_descricaoproduto', isComposicao);
+  atualizarCamposComposicaoPronto();
   renderPricingSectionVisibility(tipo);
   updatePricingPreview();
 }
@@ -1343,6 +1351,36 @@ function updateDescricaoProduto(){
   const precoInput = document.getElementById('f_preco');
   if(precoInput && tam) precoInput.value = tam.precoMilheiro||0;
   updatePricingPreview();
+  atualizarCamposComposicaoPronto();
+}
+function atualizarCamposComposicaoPronto(itemAtual){
+  const wrap = document.getElementById('composicaoProntoFields');
+  if(!wrap) return;
+  const selTam = document.getElementById('f_descricaoproduto');
+  const tam = selTam ? tamanhoObj(selTam.value) : null;
+  if(!tam || !tam.composicao){ wrap.innerHTML = ''; return; }
+  const empresaSel = document.getElementById('f_empresa');
+  const emp = empresaSel ? empresaObj(empresaSel.value) : null;
+  const perfis = tam.composicoes||[];
+  const perfisRec = emp ? (emp.recomendacoesPadroes||[]) : [];
+  const composicaoIdAtual = itemAtual ? (itemAtual.composicaoId||'') : (wrap.dataset.composicaoId||'');
+  const recPadraoIdAtual = itemAtual ? (itemAtual.recPadraoId||'') : (wrap.dataset.recpadraoId||'');
+  let html = '';
+  if(perfis.length){
+    html += `<div class="field"><label>Composição têxtil</label><select id="f_composicaopronto">
+      <option value="">Selecione</option>
+      ${perfis.map(p=>`<option value="${p.id}" ${composicaoIdAtual===p.id?'selected':''}>${esc(formatComposicoes(p.fibras))}</option>`).join('')}
+    </select></div>`;
+  }
+  if(perfisRec.length){
+    html += `<div class="field"><label>Padrão de recomendações</label><select id="f_recpadraopronto">
+      <option value="">Selecione</option>
+      ${perfisRec.map(p=>`<option value="${p.id}" ${recPadraoIdAtual===p.id?'selected':''}>${esc(p.nome)}</option>`).join('')}
+    </select></div>`;
+  } else if((tam.recomendacoes||[]).length){
+    html += `<div class="subtle" style="margin:4px 0 10px;">Recomendações do modelo: <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">${tam.recomendacoes.map(r=>`<span title="${esc(r)}">${iconCuidado(r,16)}</span>`).join('')}</div></div>`;
+  }
+  wrap.innerHTML = html;
 }
 function updateDescricaoMP(){
   const sel = document.getElementById('f_descricaomp');
@@ -1427,6 +1465,8 @@ function saveEstoque(e){
     precoRolo: (isEtq && tipo==='Ribbon' && document.getElementById('f_precorolo')) ? (parseFloat(document.getElementById('f_precorolo').value)||0) : 0,
     outroTipo: outroTipoValor,
     outroPronto: (isEtq && tipo==='Outro') ? (tipoRadio==='OutroPronto') : false,
+    composicaoId: (isEtq && tipo==='Tag' && document.getElementById('f_composicaopronto')) ? document.getElementById('f_composicaopronto').value : '',
+    recPadraoId: (isEtq && tipo==='Tag' && document.getElementById('f_recpadraopronto')) ? document.getElementById('f_recpadraopronto').value : '',
     quantidade: quantidadeInformada,
     unidade: document.getElementById('f_unidade').value.trim()||'un',
     estoqueMinimo: estoqueMinimoInformado,
