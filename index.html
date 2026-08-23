@@ -1854,10 +1854,22 @@ function printProducao(id){
     ['Responsável', p.responsavel||'—'],
     ['Pedido de origem', ped?ped.numero+' — '+ped.cliente:'Produção avulsa'],
   ];
+  let composicaoRowHtml = '';
+  let composicaoTexto = '';
+  if(tam && tam.composicao){
+    const perfis = tam.composicoes||[];
+    const perfilAtivo = perfis.length===1 ? perfis[0] : perfis.find(x=>x.id===p.composicaoId);
+    if(perfilAtivo) composicaoTexto = formatComposicoes(perfilAtivo.fibras);
+    const recs = recomendacoesEfetivas(tam, p.empresaId, p.recPadraoId);
+    composicaoRowHtml = `<tr><td style="font-weight:600;">Composição têxtil</td><td>${esc(composicaoTexto||'—')}</td></tr>
+      <tr><td style="font-weight:600;">Recomendações</td><td>${recs.length?recs.map(r=>`<span title="${esc(r)}" style="margin-right:4px;">${iconCuidado(r,16)}</span>`).join(''):'—'}</td></tr>`;
+  }
   const html = `<div class="doc">${docHeadHtml('Comprovante de produção', 'PRD-'+p.data.slice(0,10))}
-    <table><tbody>${linhas.map(l=>`<tr><td style="font-weight:600;">${esc(l[0])}</td><td>${esc(l[1])}</td></tr>`).join('')}</tbody></table>
+    <table><tbody>${linhas.map(l=>`<tr><td style="font-weight:600;">${esc(l[0])}</td><td>${esc(l[1])}</td></tr>`).join('')}${composicaoRowHtml}</tbody></table>
     <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
-  const text = buildReceiptText('Comprovante de produção', 'PRD-'+p.data.slice(0,10), linhas.map(l=>l[0]+': '+l[1]), [], []);
+  const linhasTexto = linhas.slice();
+  if(composicaoTexto) linhasTexto.push(['Composição têxtil', composicaoTexto]);
+  const text = buildReceiptText('Comprovante de produção', 'PRD-'+p.data.slice(0,10), linhasTexto.map(l=>l[0]+': '+l[1]), [], []);
   printDocument(html, text);
 }
 
@@ -3668,6 +3680,7 @@ function itensTableHtml(itens){
     <div class="line"><span>${esc(i.nome)}</span><span></span></div>
     ${(i.referencia||i.descricaoRef)?`<div class="line"><span>Ref: ${esc(i.referencia||'—')} — ${esc(i.descricaoRef||'')}</span><span></span></div>`:''}
     ${comp?`<div class="line"><span>${esc(comp.texto)}</span><span></span></div>`:''}
+    ${comp&&comp.recomendacoes.length?`<div class="line" style="align-items:center;"><span style="display:flex;gap:4px;">${comp.recomendacoes.map(r=>iconCuidado(r,14)).join('')}</span><span></span></div>`:''}
     <div class="line"><span>${fmtQty(i.quantidade)} ${esc(i.unidade||'')} x ${fmtMoney(i.precoUnit)}</span><span>${fmtMoney(i.subtotal)}</span></div>`;
   }).join('')}</div>`;
   return table+lines;
@@ -3760,10 +3773,12 @@ function printEstoque(filtro){
             const perfis = tam.composicoes||[];
             const perfilAtivo = perfis.length===1 ? perfis[0] : perfis.find(x=>x.id===p.composicaoId);
             if(perfilAtivo) linha += ' | Composição: '+formatComposicoes(perfilAtivo.fibras);
+            textoLinhas.push(linha);
             const recs = recomendacoesEfetivas(tam, p.empresaId, p.recPadraoId);
-            if(recs.length) linha += ' | Recomendações: '+recs.join(', ');
+            if(recs.length) textoLinhas.push('__ICONS__'+recs.join('|'));
+          } else {
+            textoLinhas.push(linha);
           }
-          textoLinhas.push(linha);
         });
       };
       tabelaPronto(tagsProntosTag, 'Tags Prontas', false);
@@ -3774,10 +3789,18 @@ function printEstoque(filtro){
     <tbody>${d.estoque.map(p=>{const tam=tamanhoObj(p.tamanhoId); const emp=empresaObj(p.empresaId);return `<tr><td>${esc(p.codigo)}</td><td>${esc(p.nome)}</td><td>${esc(p.categoria)}</td><td>${esc(tam?tam.nome:'—')}</td><td>${esc(p.cor)||'—'}</td><td>${emp?esc(emp.nome):''}</td><td>${fmtQty(p.quantidade)} ${esc(p.unidade)}</td><td>${fmtQty(p.estoqueMinimo)}</td><td>${fmtMoney(p.preco)}</td><td>${fmtMoney(itemValorEstoque(p))}</td></tr>`;}).join('')||'<tr><td colspan="10">Nenhum item</td></tr>'}</tbody></table>`;
     d.estoque.forEach(p=>textoLinhas.push(p.nome+': '+fmtQty(p.quantidade)+' '+p.unidade));
   }
-  const docLinesHtml = `<div class="doc-lines">${textoLinhas.map(l=>l.startsWith('---')?`<div class="line" style="font-weight:700;margin-top:8px;"><span>${esc(l.replace(/---/g,'').trim())}</span><span></span></div>`:`<div class="line"><span>${esc(l)}</span><span></span></div>`).join('')}</div>`;
+  const docLinesHtml = `<div class="doc-lines">${textoLinhas.map(l=>{
+    if(l.startsWith('__ICONS__')){
+      const recs = l.replace('__ICONS__','').split('|').filter(Boolean);
+      return `<div class="line" style="align-items:center;"><span style="display:flex;gap:4px;flex-wrap:wrap;">${recs.map(r=>iconCuidado(r,14)).join('')}</span><span></span></div>`;
+    }
+    if(l.startsWith('---')) return `<div class="line" style="font-weight:700;margin-top:8px;"><span>${esc(l.replace(/---/g,'').trim())}</span><span></span></div>`;
+    return `<div class="line"><span>${esc(l)}</span><span></span></div>`;
+  }).join('')}</div>`;
   const html = `<div class="doc">${docHeadHtml(titulo+' · '+WS_META[ws].label, 'Emitido em '+fmtDate(todayISO()))}${body}${docLinesHtml}
     <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div><div></div></div></div>`;
-  let text = cur().empresa.nome+'\n--------------------------------\n'+titulo.toUpperCase()+'\n--------------------------------\n'+textoLinhas.join('\n');
+  const textoLinhasPlano = textoLinhas.filter(l=>!l.startsWith('__ICONS__'));
+  let text = cur().empresa.nome+'\n--------------------------------\n'+titulo.toUpperCase()+'\n--------------------------------\n'+textoLinhasPlano.join('\n');
   text += '\n--------------------------------\nEmitido em '+fmtDateTime(todayISO())+'\n\n\n';
   printDocument(html, text);
 }
