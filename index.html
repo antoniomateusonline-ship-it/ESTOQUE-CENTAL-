@@ -318,6 +318,7 @@ let ws = 'etiquetag';
 let estoqueFiltro = 'todos';
 function emptyData(){
   return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[], outrosTipos:[],
+    qrPagamento:{foto:'', legenda:''},
     configImpressao:{formato:'a4', assinatura:true, documento:true}, seq:{pd:1,vd:1,rb:1,tm:1,tg:1,it:1} };
 }
 let DATA = { etiquetag: emptyData(), vimats: emptyData() };
@@ -342,6 +343,7 @@ function migrateIfNeeded(wsKey, raw){
   if(!raw.ribbonDescricoes) raw.ribbonDescricoes = [];
   if(!raw.compras) raw.compras = [];
   if(!raw.outrosTipos) raw.outrosTipos = [];
+  if(!raw.qrPagamento) raw.qrPagamento = {foto:'', legenda:''};
   if(!raw.estoque) raw.estoque = [];
   raw.empresas.forEach(e=>{
     if(!e.referencias) e.referencias = []; e.referencias.forEach(r=>{ if(!r.id) r.id = uid(); });
@@ -1079,7 +1081,7 @@ function tagMpCardHtml(it){
     </div>
   </div>`;
 }
-function prontosPorNumeracaoHtml(itens){
+function prontosPorNumeracaoHtml(itens, chaveBase){
   const grupos = {};
   itens.forEach(it=>{
     const chave = it.numeracaoId || '__semnum__';
@@ -1100,8 +1102,10 @@ function prontosPorNumeracaoHtml(itens){
     const g = grupos[chave];
     const num = numeracaoObj(g.numeracaoId);
     const titulo = num ? 'Numeração: '+num.nome : 'Sem numeração definida';
-    return `<div style="padding:6px 4px 2px 20px;font-size:10.5px;font-weight:600;color:var(--ink-soft);border-left:2px dotted var(--line);margin:2px 0 0;">${esc(titulo)} (${g.itens.length})</div>
-      ${[...g.itens].sort((a,b)=>a.nome.localeCompare(b.nome)).map(tagProntoListRowHtml).join('')}`;
+    const key = (chaveBase||'num')+'-'+chave;
+    const collapsed = isColapsado(key);
+    return `<div style="display:flex;align-items:center;gap:6px;padding:6px 4px 6px 20px;font-size:10.5px;font-weight:600;color:var(--ink-soft);border-left:2px dotted var(--line);margin:2px 0 0;cursor:pointer;" onclick="togglePanel('${key}')">${chevronIcon(collapsed)} ${esc(titulo)} (${g.itens.length})</div>
+      ${collapsed ? '' : [...g.itens].sort((a,b)=>a.nome.localeCompare(b.nome)).map(tagProntoListRowHtml).join('')}`;
   }).join('');
 }
 function prontosPorReferenciaHtml(itens, chaveBase){
@@ -1117,13 +1121,15 @@ function prontosPorReferenciaHtml(itens, chaveBase){
     return a.localeCompare(b);
   });
   if(chaves.length===1 && chaves[0]==='__semref__'){
-    return prontosPorNumeracaoHtml(itens);
+    return prontosPorNumeracaoHtml(itens, (chaveBase||'ref')+'-semref-num');
   }
   return chaves.map(chave=>{
     const g = grupos[chave];
     const titulo = g.referencia ? 'Referência: '+g.referencia : 'Sem referência definida';
-    return `<div style="padding:8px 4px 2px 10px;font-size:11px;font-weight:600;color:var(--ink-soft);border-left:2px solid var(--line);margin:4px 0 2px;">${esc(titulo)} (${g.itens.length})</div>
-      ${prontosPorNumeracaoHtml(g.itens)}`;
+    const key = (chaveBase||'ref')+'-'+chave;
+    const collapsed = isColapsado(key);
+    return `<div style="display:flex;align-items:center;gap:6px;padding:8px 4px 8px 10px;font-size:11px;font-weight:600;color:var(--ink-soft);border-left:2px solid var(--line);margin:4px 0 2px;cursor:pointer;" onclick="togglePanel('${key}')">${chevronIcon(collapsed)} ${esc(titulo)} (${g.itens.length})</div>
+      ${collapsed ? '' : prontosPorNumeracaoHtml(g.itens, key+'-num')}`;
   }).join('');
 }
 function tagProntoListRowHtml(it){
@@ -1356,6 +1362,65 @@ function handleFotoUpload(input){
     img.src = ev.target.result;
   };
   reader.readAsDataURL(file);
+}
+function handleQrPagamentoUpload(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  if(!file.type.startsWith('image/')){ showToast('Selecione um arquivo de imagem.', 'bad'); return; }
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    const img = new Image();
+    img.onload = function(){
+      const maxDim = 500;
+      let w = img.width, h = img.height;
+      if(w>maxDim || h>maxDim){
+        if(w>=h){ h = Math.round(h*(maxDim/w)); w = maxDim; } else { w = Math.round(w*(maxDim/h)); h = maxDim; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/png');
+      const hidden = document.getElementById('f_qrfoto'); if(hidden) hidden.value = dataUrl;
+      const preview = document.getElementById('qrPreview'); if(preview) preview.src = dataUrl;
+      const wrap = document.getElementById('qrPreviewWrap'); if(wrap) wrap.style.display = 'block';
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function qrPagamentoConfigHtml(){
+  const d = cur();
+  const qr = d.qrPagamento || {foto:'', legenda:''};
+  return `<div class="panel" style="padding:16px;">
+    <h3 style="font-family:'Space Grotesk';margin:0 0 6px;">QR Code de Pagamento</h3>
+    <p class="hint" style="margin-top:0;">Anexe o QR Code (Pix, por exemplo) e informe a chave/legenda. Isso sai impresso automaticamente junto do comprovante de cada venda.</p>
+    <div id="qrPreviewWrap" style="margin-bottom:10px;${qr.foto?'':'display:none;'}">
+      <img id="qrPreview" src="${qr.foto||''}" style="width:160px;height:160px;object-fit:contain;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px;">
+    </div>
+    <div class="field"><label>Foto do QR Code</label><input type="file" accept="image/*" onchange="handleQrPagamentoUpload(this)">
+      <input type="hidden" id="f_qrfoto" value="${esc(qr.foto||'')}"></div>
+    <div class="field"><label>Legenda (chave Pix, por exemplo)</label><input id="f_qrlegenda" value="${esc(qr.legenda||'')}" placeholder="Ex.: chave-pix@empresa.com"></div>
+    <div style="display:flex;gap:8px;">
+      <button type="button" class="btn btn-accent btn-sm" onclick="salvarQrPagamento()">${iconCheck()} Salvar</button>
+      ${qr.foto?`<button type="button" class="btn btn-ghost btn-sm" onclick="removerQrPagamento()">${iconTrash()} Remover</button>`:''}
+    </div>
+  </div>`;
+}
+function salvarQrPagamento(){
+  const d = cur();
+  const fotoEl = document.getElementById('f_qrfoto');
+  const foto = fotoEl ? fotoEl.value : (d.qrPagamento?d.qrPagamento.foto:'');
+  const legenda = document.getElementById('f_qrlegenda').value.trim();
+  d.qrPagamento = { foto: foto||'', legenda };
+  saveWS();
+  showToast('QR Code de pagamento salvo.', 'good');
+  renderAll();
+}
+function removerQrPagamento(){
+  const d = cur();
+  d.qrPagamento = {foto:'', legenda:''};
+  saveWS(); renderAll();
+  showToast('QR Code removido.', 'good');
 }
 function handleEmpresaSelect(sel){
   if(sel.value==='__new__'){
@@ -3093,6 +3158,7 @@ function renderFinanceiro(){
   }));
   const lucroObtido = totalVendasGeral - custoVendido;
   let html = financeHtml(valorInvestidoTotal, valorMateriaPrima, valorProdutosProntos, totalVendasGeral, vendasValidas.length, lucroObtido);
+  html += qrPagamentoConfigHtml();
   html += renderFechamentoCaixa();
 
   if(!vendasValidas.length){
@@ -3762,14 +3828,22 @@ function signLineHtml(){
   return cfg.assinatura!==false ? '<div class="sign-line">Assinatura</div>' : '<div></div>';
 }
 function printVenda(id){
-  const v = cur().vendas.find(x=>x.id===id);
+  const d = cur();
+  const v = d.vendas.find(x=>x.id===id);
   const subtotal = v.itens.reduce((s,i)=>s+i.subtotal,0);
+  const qr = d.qrPagamento || {foto:'', legenda:''};
+  const qrHtml = qr.foto ? `<div style="text-align:center;margin:16px 0;padding-top:12px;border-top:1px dashed #999;">
+      <img src="${qr.foto}" style="width:130px;height:130px;object-fit:contain;">
+      ${qr.legenda?`<div style="font-size:11px;margin-top:6px;">${esc(qr.legenda)}</div>`:''}
+    </div>` : '';
   const html = `<div class="doc">${docHeadHtml('Comprovante de venda', v.numero)}
     <div class="doc-meta"><span>Cliente: <strong>${esc(v.cliente)}</strong></span><span>Data: ${fmtDate(v.data)}</span><span>Pagamento: ${esc(v.formaPagamento)}</span></div>
     ${itensTableHtml(v.itens)}
     <div class="doc-total">${v.desconto?`<div>Subtotal: ${fmtMoney(subtotal)}</div><div>Desconto: -${fmtMoney(v.desconto)}</div>`:''}<div class="grand">Total: ${fmtMoney(v.total)}</div></div>
+    ${qrHtml}
     <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
   const totalLines = v.desconto ? ['Subtotal: '+fmtMoney(subtotal),'Desconto: -'+fmtMoney(v.desconto),'Total: '+fmtMoney(v.total)] : ['Total: '+fmtMoney(v.total)];
+  if(qr.legenda) totalLines.push('Chave de pagamento: '+qr.legenda);
   const text = buildReceiptText('Comprovante de venda', v.numero,
     ['Cliente: '+v.cliente, 'Data: '+fmtDate(v.data), 'Pagamento: '+v.formaPagamento], v.itens, totalLines);
   printDocument(html, text);
