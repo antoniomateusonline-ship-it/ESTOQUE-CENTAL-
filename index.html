@@ -797,6 +797,7 @@ function financeHtml(valorInvestidoTotal, valorMP, valorProdutos, totalVendas, n
   return `<div class="finance-panel">
     <h3>Resumo Financeiro</h3>
     <div class="finance-row"><div class="finance-icon">${iconWallet()}</div><div><div class="finance-label">Investimento em Estoque</div><div class="finance-value">${fmtMoney(valorInvestidoTotal)}</div><div class="finance-note">MP: ${fmtMoney(valorMP)} · Produtos: ${fmtMoney(valorProdutos)}</div></div></div>
+    <div class="finance-row"><div class="finance-icon">${iconBox()}</div><div><div class="finance-label">Valor Investido em Produtos Prontos</div><div class="finance-value">${fmtMoney(valorProdutos)}</div><div class="finance-note">Custo dos produtos já fabricados, parados no estoque</div></div></div>
     <div class="finance-row"><div class="finance-icon">${iconCart()}</div><div><div class="finance-label">Total de Vendas</div><div class="finance-value">${fmtMoney(totalVendas)}</div><div class="finance-note">${nVendas} venda(s) registrada(s)</div></div></div>
     <div class="finance-row"><div class="finance-icon">${iconDollar()}</div><div><div class="finance-label">Lucro Obtido</div><div class="finance-value good">${fmtMoney(lucroObtido)}</div><div class="finance-note">Vendas − custo dos produtos</div></div></div>
   </div>`;
@@ -1078,6 +1079,31 @@ function tagMpCardHtml(it){
     </div>
   </div>`;
 }
+function prontosPorNumeracaoHtml(itens){
+  const grupos = {};
+  itens.forEach(it=>{
+    const chave = it.numeracaoId || '__semnum__';
+    if(!grupos[chave]) grupos[chave] = { numeracaoId: it.numeracaoId||'', itens:[] };
+    grupos[chave].itens.push(it);
+  });
+  const chaves = Object.keys(grupos);
+  if(chaves.length<=1){
+    return [...itens].sort((a,b)=>a.nome.localeCompare(b.nome)).map(tagProntoListRowHtml).join('');
+  }
+  const chavesOrdenadas = chaves.sort((a,b)=>{
+    if(a==='__semnum__') return 1;
+    if(b==='__semnum__') return -1;
+    const na = numeracaoObj(a); const nb = numeracaoObj(b);
+    return (na?na.nome:'').localeCompare(nb?nb.nome:'');
+  });
+  return chavesOrdenadas.map(chave=>{
+    const g = grupos[chave];
+    const num = numeracaoObj(g.numeracaoId);
+    const titulo = num ? 'Numeração: '+num.nome : 'Sem numeração definida';
+    return `<div style="padding:6px 4px 2px 20px;font-size:10.5px;font-weight:600;color:var(--ink-soft);border-left:2px dotted var(--line);margin:2px 0 0;">${esc(titulo)} (${g.itens.length})</div>
+      ${[...g.itens].sort((a,b)=>a.nome.localeCompare(b.nome)).map(tagProntoListRowHtml).join('')}`;
+  }).join('');
+}
 function prontosPorReferenciaHtml(itens, chaveBase){
   const grupos = {};
   itens.forEach(it=>{
@@ -1091,13 +1117,13 @@ function prontosPorReferenciaHtml(itens, chaveBase){
     return a.localeCompare(b);
   });
   if(chaves.length===1 && chaves[0]==='__semref__'){
-    return [...itens].sort((a,b)=>a.nome.localeCompare(b.nome)).map(tagProntoListRowHtml).join('');
+    return prontosPorNumeracaoHtml(itens);
   }
   return chaves.map(chave=>{
     const g = grupos[chave];
     const titulo = g.referencia ? 'Referência: '+g.referencia : 'Sem referência definida';
     return `<div style="padding:8px 4px 2px 10px;font-size:11px;font-weight:600;color:var(--ink-soft);border-left:2px solid var(--line);margin:4px 0 2px;">${esc(titulo)} (${g.itens.length})</div>
-      ${[...g.itens].sort((a,b)=>a.nome.localeCompare(b.nome)).map(tagProntoListRowHtml).join('')}`;
+      ${prontosPorNumeracaoHtml(g.itens)}`;
   }).join('');
 }
 function tagProntoListRowHtml(it){
@@ -2813,7 +2839,8 @@ function updateDraftField(field, value){
     const perfisRec = emp ? (emp.recomendacoesPadroes||[]) : [];
     if(perfisRec.length===1) pedidoDraftItem.recPadraoId = perfisRec[0].id;
   }
-  renderPedidoDraftArea();
+  if(field==='quantidade' || field==='precoUnit') reRenderKeepingFocus(renderPedidoDraftArea);
+  else renderPedidoDraftArea();
 }
 function updateDraftTamanho(tamanhoId){
   const tam = tamanhoObj(tamanhoId);
@@ -2905,8 +2932,8 @@ function renderPedidoDraftArea(){
     }
   }
   html += `<div class="field-row">
-    <div class="field"><label>Quantidade</label><input type="number" min="0.001" step="0.001" value="${item.quantidade||''}" oninput="updateDraftField('quantidade',this.value)"></div>
-    <div class="field"><label>Preço unitário</label><input type="number" min="0" step="0.001" value="${item.precoUnit||''}" oninput="updateDraftField('precoUnit',this.value)"></div>
+    <div class="field"><label>Quantidade</label><input type="number" id="pedidoDraftQtd" min="0.001" step="0.001" value="${item.quantidade||''}" oninput="updateDraftField('quantidade',this.value)"></div>
+    <div class="field"><label>Preço unitário</label><input type="number" id="pedidoDraftPreco" min="0" step="0.001" value="${item.precoUnit||''}" oninput="updateDraftField('precoUnit',this.value)"></div>
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
     <div class="subtle">Subtotal deste item: <strong>${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</strong></div>
@@ -3056,6 +3083,8 @@ function renderFinanceiro(){
   const d = cur();
   const vendasValidas = d.vendas.filter(v=>v.status!=='Cancelada');
   const valorInvestidoTotal = d.estoque.reduce((s,x)=>s+valorInvestidoItem(x),0);
+  const valorProdutosProntos = d.estoque.filter(x=>x.tipo==='Tag' || (x.tipo==='Outro' && x.outroPronto)).reduce((s,x)=>s+valorInvestidoItem(x),0);
+  const valorMateriaPrima = valorInvestidoTotal - valorProdutosProntos;
   const totalVendasGeral = vendasValidas.reduce((s,v)=>s+v.total,0);
   let custoVendido = 0;
   vendasValidas.forEach(v=> v.itens.forEach(it=>{
@@ -3063,7 +3092,7 @@ function renderFinanceiro(){
     if(prod) custoVendido += it.quantidade * custoUnitarioItem(prod);
   }));
   const lucroObtido = totalVendasGeral - custoVendido;
-  let html = financeHtml(valorInvestidoTotal, valorInvestidoTotal, 0, totalVendasGeral, vendasValidas.length, lucroObtido);
+  let html = financeHtml(valorInvestidoTotal, valorMateriaPrima, valorProdutosProntos, totalVendasGeral, vendasValidas.length, lucroObtido);
   html += renderFechamentoCaixa();
 
   if(!vendasValidas.length){
@@ -3299,7 +3328,8 @@ function updateVendaDraftField(field, value){
   else if(field==='precoUnit') vendaDraftItem.precoUnit = parseFloat(value)||0;
   else if(field==='composicaoId') vendaDraftItem.composicaoId = value;
   else if(field==='recPadraoId') vendaDraftItem.recPadraoId = value;
-  renderVendaDraftArea();
+  if(field==='quantidade' || field==='precoUnit') reRenderKeepingFocus(renderVendaDraftArea);
+  else renderVendaDraftArea();
 }
 function updateVendaDraftReferencia(refId){
   const ref = allReferenciasList().find(r=>r.id===refId);
@@ -3345,8 +3375,8 @@ function renderVendaDraftArea(){
   </select></div>`;
   if(prodSel) html += composicaoAlertaHtml(prodSel.tamanhoId, prodSel.empresaId, item.composicaoId, item.recPadraoId, -1, false);
   html += `<div class="field-row">
-    <div class="field"><label>Quantidade</label><input type="number" min="0.001" step="0.001" value="${item.quantidade||''}" oninput="updateVendaDraftField('quantidade',this.value)"></div>
-    <div class="field"><label>Preço unitário</label><input type="number" min="0" step="0.001" value="${item.precoUnit||''}" oninput="updateVendaDraftField('precoUnit',this.value)"></div>
+    <div class="field"><label>Quantidade</label><input type="number" id="vendaDraftQtd" min="0.001" step="0.001" value="${item.quantidade||''}" oninput="updateVendaDraftField('quantidade',this.value)"></div>
+    <div class="field"><label>Preço unitário</label><input type="number" id="vendaDraftPreco" min="0" step="0.001" value="${item.precoUnit||''}" oninput="updateVendaDraftField('precoUnit',this.value)"></div>
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
     <div class="subtle">Subtotal deste item: <strong>${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</strong></div>
