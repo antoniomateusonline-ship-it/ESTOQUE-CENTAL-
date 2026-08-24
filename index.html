@@ -317,7 +317,7 @@ const WS_META = {
 let ws = 'etiquetag';
 let estoqueFiltro = 'todos';
 function emptyData(){
-  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[], outrosTipos:[],
+  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[], outrosTipos:[], responsaveisFinanceiros:[],
     qrPagamento:{foto:'', legenda:''},
     configImpressao:{formato:'a4', assinatura:true, documento:true}, seq:{pd:1,vd:1,rb:1,tm:1,tg:1,it:1} };
 }
@@ -344,6 +344,8 @@ function migrateIfNeeded(wsKey, raw){
   if(!raw.compras) raw.compras = [];
   if(!raw.outrosTipos) raw.outrosTipos = [];
   if(!raw.qrPagamento) raw.qrPagamento = {foto:'', legenda:''};
+  if(!raw.responsaveisFinanceiros) raw.responsaveisFinanceiros = [];
+  raw.empresas.forEach(e=>{ if(e.responsavelFinanceiroId===undefined) e.responsavelFinanceiroId = ''; });
   if(!raw.estoque) raw.estoque = [];
   raw.empresas.forEach(e=>{
     if(!e.referencias) e.referencias = []; e.referencias.forEach(r=>{ if(!r.id) r.id = uid(); });
@@ -2075,6 +2077,14 @@ function renderTamanhos(){
       : `<div class="empty" style="padding:24px;"><p>Nenhuma descrição cadastrada.</p></div>`);
   }
 
+  html += collapsiblePanel('cad-responsaveis', 'Responsáveis Financeiros', 'Pessoas que respondem pelos débitos/pagamentos de cada empresa. Vincule uma delas no cadastro da empresa.',
+    `<button class="btn btn-accent btn-sm" onclick="openResponsavelForm()">${iconPlus()} Novo(a) responsável</button>`,
+    (d.responsaveisFinanceiros||[]).length ? `<table><thead><tr><th>Código</th><th>Nome</th><th></th></tr></thead>
+    <tbody>${d.responsaveisFinanceiros.map(r=>`<tr><td class="mono">${esc(r.codigo)}</td><td>${esc(r.nome)}</td>
+      <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openResponsavelForm('${r.id}')">${iconEdit()}</button>
+      <button class="icon-btn" title="Excluir" onclick="deleteResponsavel('${r.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
+    : `<div class="empty" style="padding:24px;"><p>Nenhum responsável cadastrado ainda.</p></div>`);
+
   html += collapsiblePanel('cad-materiais', 'Materiais cadastrados', 'Todos os itens do estoque, com edição rápida e o preço usado em pedidos/vendas.',
     `<div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openReajusteLoteModal()">${iconAdjust()} Reajustar preços em lote</button><button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button></div>`,
     d.estoque.length ? `<table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Estoque</th><th>Preço</th><th></th></tr></thead>
@@ -2395,23 +2405,77 @@ function deleteNumeracao(id){
   saveWS(); renderAll();
   showToast('Numeração excluída.', 'good');
 }
+function openResponsavelForm(id){
+  editingId = id || null;
+  const d = cur();
+  const r = id ? d.responsaveisFinanceiros.find(x=>x.id===id) : {codigo:'', nome:''};
+  openModal(`
+    <div class="modal-head"><h3>${id?'Editar':'Novo(a)'} responsável financeiro</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="saveResponsavel(event)">
+      <div class="modal-body">
+        <div class="field"><label>Código</label><input required id="f_respcodigo" value="${esc(r.codigo)}" placeholder="Ex.: RF001"></div>
+        <div class="field"><label>Nome</label><input required id="f_respnome" value="${esc(r.nome)}" placeholder="Ex.: João da Silva"></div>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
+    </form>`);
+}
+function saveResponsavel(e){
+  e.preventDefault();
+  const data = { codigo: document.getElementById('f_respcodigo').value.trim(), nome: document.getElementById('f_respnome').value.trim() };
+  const d = cur();
+  if(!d.responsaveisFinanceiros) d.responsaveisFinanceiros = [];
+  if(editingId){ Object.assign(d.responsaveisFinanceiros.find(x=>x.id===editingId), data); }
+  else { data.id = uid(); d.responsaveisFinanceiros.push(data); }
+  closeModal(); saveWS(); renderAll();
+  showToast('Responsável financeiro salvo.', 'good');
+}
+function deleteResponsavel(id){
+  const d = cur();
+  if((d.empresas||[]).some(e=>e.responsavelFinanceiroId===id)){ showToast('Este responsável está vinculado a uma empresa. Altere-a antes de excluir.', 'bad'); return; }
+  if(!confirm('Excluir este responsável financeiro?')) return;
+  d.responsaveisFinanceiros = d.responsaveisFinanceiros.filter(x=>x.id!==id);
+  saveWS(); renderAll();
+  showToast('Responsável excluído.', 'good');
+}
 let tempRecPadroes = [];
 function openEmpresaForm(id){
   editingId = id || null;
   const d = cur();
   const isEtq = ws==='etiquetag';
-  const emp = id ? d.empresas.find(x=>x.id===id) : {nome:'', cnpj:''};
+  const emp = id ? d.empresas.find(x=>x.id===id) : {nome:'', cnpj:'', responsavelFinanceiroId:''};
+  const responsaveis = d.responsaveisFinanceiros||[];
   openModal(`
     <div class="modal-head"><h3>${id?'Editar':'Novo(a)'} ${termEmpresa().toLowerCase()}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <form onsubmit="saveEmpresa(event)">
       <div class="modal-body">
         <div class="field"><label>Nome ${isEtq?'da empresa / marca':'do cliente'}</label><input required id="f_nome" value="${esc(emp.nome)}" placeholder="${isEtq?'Ex.: Empresa X':'Ex.: Maria Silva'}"></div>
         ${isEtq ? `<div class="field"><label>CNPJ</label><input id="f_cnpj" value="${esc(emp.cnpj||'')}" placeholder="00.000.000/0001-00">
-          <p class="hint">Usado na fabricação de Etiquetas de Composição para essa marca.</p></div>
-        <p class="hint">Referências, Recomendações e Composições desta marca ficam nos botões da lista de empresas, depois de salvar.</p>` : ''}
+          <p class="hint">Usado na fabricação de Etiquetas de Composição para essa marca.</p></div>` : ''}
+        <div class="field"><label>Responsável financeiro</label><select id="f_respfinanceiro" onchange="if(this.value==='__new__'){abrirNovoResponsavelInline(this);}">
+          <option value="">Nenhum</option>
+          ${responsaveis.map(r=>`<option value="${r.id}" ${emp.responsavelFinanceiroId===r.id?'selected':''}>${esc(r.nome)} (${esc(r.codigo)})</option>`).join('')}
+          <option value="__new__">+ Novo responsável...</option>
+        </select>
+        <p class="hint">Pessoa que responde pelos débitos/pagamentos pendentes desta ${isEtq?'empresa':'cliente'} — aparece no Financeiro e no comprovante de débito.</p></div>
+        ${isEtq ? `<p class="hint">Referências, Recomendações e Composições desta marca ficam nos botões da lista de empresas, depois de salvar.</p>` : ''}
       </div>
       <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
     </form>`);
+}
+function abrirNovoResponsavelInline(sel){
+  const nome = prompt('Nome do(a) novo(a) responsável financeiro:');
+  if(!nome || !nome.trim()){ sel.value=''; return; }
+  const codigo = prompt('Código para "'+nome.trim()+'":');
+  if(!codigo || !codigo.trim()){ sel.value=''; return; }
+  const d = cur();
+  if(!d.responsaveisFinanceiros) d.responsaveisFinanceiros = [];
+  const novo = {id:uid(), nome:nome.trim(), codigo:codigo.trim()};
+  d.responsaveisFinanceiros.push(novo);
+  saveWS();
+  const opt = document.createElement('option');
+  opt.value = novo.id; opt.textContent = novo.nome+' ('+novo.codigo+')';
+  sel.insertBefore(opt, sel.lastElementChild);
+  sel.value = novo.id;
 }
 function renderRecPadroesBody(){
   const body = document.getElementById('recPadroesBody');
@@ -2430,7 +2494,8 @@ function removeRecPadrao(idx){ tempRecPadroes.splice(idx,1); renderRecPadroesBod
 function updateRecPadraoNome(idx, value){ tempRecPadroes[idx].nome = value; }
 function saveEmpresa(e){
   e.preventDefault();
-  const data = { nome: document.getElementById('f_nome').value.trim(), cnpj: document.getElementById('f_cnpj') ? document.getElementById('f_cnpj').value.trim() : '' };
+  const data = { nome: document.getElementById('f_nome').value.trim(), cnpj: document.getElementById('f_cnpj') ? document.getElementById('f_cnpj').value.trim() : '',
+    responsavelFinanceiroId: document.getElementById('f_respfinanceiro') ? document.getElementById('f_respfinanceiro').value : '' };
   const d = cur();
   if(!d.empresas) d.empresas = [];
   const duplicado = d.empresas.find(x=>x.id!==editingId && x.nome.toLowerCase()===data.nome.toLowerCase());
@@ -3187,19 +3252,25 @@ function renderFinanceiro(){
   </div>`;
 
   html += `<div class="panel"><div class="panel-head"><h3>Vendas por empresa</h3></div>
-    <table><thead><tr><th>Empresa / Cliente</th><th>Vendas</th><th>Total</th><th>Pago</th><th>Pendente</th><th></th></tr></thead>
+    <table><thead><tr><th>Empresa / Cliente</th><th>Responsável Financeiro</th><th>Vendas</th><th>Total</th><th>Pago</th><th>Débito Pendente</th><th></th></tr></thead>
     <tbody>${listaGrupos.map(g=>{
       const total = g.vendas.reduce((s,v)=>s+v.total,0);
       const pago = g.vendas.filter(v=>v.statusPagamento!=='Pendente').reduce((s,v)=>s+v.total,0);
       const pendente = total-pago;
       const key = g.empresaId||'__semempresa__';
+      const empObj = g.empresaId ? empresaObj(g.empresaId) : null;
+      const resp = (empObj && empObj.responsavelFinanceiroId) ? (d.responsaveisFinanceiros||[]).find(r=>r.id===empObj.responsavelFinanceiroId) : null;
       return `<tr>
         <td>${esc(g.nome)}</td>
+        <td>${resp?esc(resp.nome)+' <span class="mono" style="color:var(--ink-soft);">('+esc(resp.codigo)+')</span>':'—'}</td>
         <td class="mono">${g.vendas.length}</td>
         <td class="mono">${fmtMoney(total)}</td>
         <td class="mono">${fmtMoney(pago)}</td>
         <td class="mono">${pendente>0?badgeHtml('warn', fmtMoney(pendente)):fmtMoney(0)}</td>
-        <td><button class="btn btn-ghost btn-sm" onclick="verHistoricoEmpresa('${key}')">Ver histórico</button></td>
+        <td><div class="row-actions">
+          <button class="btn btn-ghost btn-sm" onclick="verHistoricoEmpresa('${key}')">Ver histórico</button>
+          ${pendente>0?`<button class="btn btn-ghost btn-sm" title="Imprimir comprovante de débito" onclick="printComprovanteDebito('${key}')">${iconPrint()} Comprovante de débito</button>`:''}
+        </div></td>
       </tr>`;
     }).join('')}</tbody></table>
   </div>`;
@@ -3207,16 +3278,23 @@ function renderFinanceiro(){
   if(financeiroEmpresaSelecionada){
     const g = grupos[financeiroEmpresaSelecionada];
     if(g){
-      html += `<div class="panel"><div class="panel-head"><div><h3>Histórico · ${esc(g.nome)}</h3><p>Vendas independentes desta empresa, mais recentes primeiro.</p></div>
+      html += `<div class="panel"><div class="panel-head"><div><h3>Histórico · ${esc(g.nome)}</h3><p>Vendas independentes desta empresa, mais recentes primeiro, com os materiais comprados em cada uma.</p></div>
         <button class="btn btn-ghost btn-sm" onclick="verHistoricoEmpresa('')">${iconX()} Fechar</button></div>
-        <table><thead><tr><th>Nº</th><th>Data</th><th>Itens</th><th>Total</th><th>Pagamento</th><th></th></tr></thead>
-        <tbody>${[...g.vendas].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(v=>`
-          <tr><td><span class="code-tag">${esc(v.numero)}</span></td><td>${fmtDate(v.data)}</td><td>${v.itens.length}</td><td class="mono">${fmtMoney(v.total)}</td>
-          <td>${v.statusPagamento==='Pendente'?badgeHtml('warn','Pendente'):badgeHtml('good','Pago')}</td>
-          <td><div class="row-actions">
-            <button class="btn btn-ghost btn-sm" onclick="togglePagamento('${v.id}')">${v.statusPagamento==='Pendente'?'Marcar pago':'Marcar pendente'}</button>
-            <button class="icon-btn" title="Imprimir" onclick="printVenda('${v.id}')">${iconPrint()}</button>
-          </div></td></tr>`).join('')}</tbody></table>
+        ${[...g.vendas].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(v=>`
+          <div style="border-top:1px solid var(--line-soft);padding:12px 4px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+              <div><span class="code-tag">${esc(v.numero)}</span> <span class="l-sub">${fmtDate(v.data)}</span></div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span class="mono" style="font-weight:700;">${fmtMoney(v.total)}</span>
+                ${v.statusPagamento==='Pendente'?badgeHtml('warn','Pendente'):badgeHtml('good','Pago')}
+                <button class="btn btn-ghost btn-sm" onclick="togglePagamento('${v.id}')">${v.statusPagamento==='Pendente'?'Marcar pago':'Marcar pendente'}</button>
+                <button class="icon-btn" title="Imprimir" onclick="printVenda('${v.id}')">${iconPrint()}</button>
+              </div>
+            </div>
+            <table style="margin-top:8px;"><thead><tr><th>Material</th><th>Qtd</th><th>Preço</th><th>Subtotal</th></tr></thead>
+              <tbody>${v.itens.map(it=>`<tr><td>${esc(it.nome)}</td><td class="mono">${fmtQty(it.quantidade)} ${esc(it.unidade||'')}</td><td class="mono">${fmtMoney(it.precoUnit)}</td><td class="mono">${fmtMoney(it.subtotal)}</td></tr>`).join('')}</tbody>
+            </table>
+          </div>`).join('')}
       </div>`;
     }
   }
@@ -3826,6 +3904,39 @@ function itensTableHtml(itens){
 function signLineHtml(){
   const cfg = cur().configImpressao || {};
   return cfg.assinatura!==false ? '<div class="sign-line">Assinatura</div>' : '<div></div>';
+}
+function printComprovanteDebito(empresaKey){
+  const d = cur();
+  const empObj = empresaKey!=='__semempresa__' ? empresaObj(empresaKey) : null;
+  const nomeGrupo = empObj ? empObj.nome : 'Cliente avulso';
+  const resp = (empObj && empObj.responsavelFinanceiroId) ? (d.responsaveisFinanceiros||[]).find(r=>r.id===empObj.responsavelFinanceiroId) : null;
+  const vendasPendentes = d.vendas.filter(v=>v.status!=='Cancelada' && v.statusPagamento==='Pendente' && (v.empresaId||'__semempresa__')===empresaKey)
+    .sort((a,b)=>new Date(a.data)-new Date(b.data));
+  if(!vendasPendentes.length){ showToast('Não há débitos pendentes para esta empresa.', 'bad'); return; }
+  const totalDebito = vendasPendentes.reduce((s,v)=>s+v.total,0);
+  const body = `
+    <table><tbody>
+      <tr><td style="font-weight:600;">${termEmpresa()}</td><td>${esc(nomeGrupo)}</td></tr>
+      <tr><td style="font-weight:600;">Responsável Financeiro</td><td>${resp?esc(resp.nome)+' (Código: '+esc(resp.codigo)+')':'Não informado'}</td></tr>
+      <tr><td style="font-weight:600;">Total em aberto</td><td style="font-weight:700;">${fmtMoney(totalDebito)}</td></tr>
+    </tbody></table>
+    <h3 style="font-family:'Space Grotesk';margin:18px 0 8px;">Vendas em aberto</h3>
+    ${vendasPendentes.map(v=>`
+      <div style="margin-bottom:14px;padding-bottom:10px;border-bottom:1px dashed #999;">
+        <div style="font-weight:600;font-size:12px;">Venda ${esc(v.numero)} — ${fmtDate(v.data)} — Total: ${fmtMoney(v.total)}</div>
+        <table style="margin-top:4px;"><thead><tr><th>Material</th><th>Qtd</th><th>Preço</th><th>Subtotal</th></tr></thead>
+        <tbody>${v.itens.map(it=>`<tr><td>${esc(it.nome)}</td><td>${fmtQty(it.quantidade)} ${esc(it.unidade||'')}</td><td>${fmtMoney(it.precoUnit)}</td><td>${fmtMoney(it.subtotal)}</td></tr>`).join('')}</tbody></table>
+      </div>`).join('')}
+    <div class="doc-total"><div class="grand">Total do débito: ${fmtMoney(totalDebito)}</div></div>`;
+  const html = `<div class="doc">${docHeadHtml('Comprovante de Débito · '+WS_META[ws].label, 'Emitido em '+fmtDate(todayISO()))}${body}
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+  const linhasTexto = [termEmpresa()+': '+nomeGrupo, 'Responsável: '+(resp?resp.nome+' ('+resp.codigo+')':'Não informado'), 'Total em aberto: '+fmtMoney(totalDebito), ''];
+  vendasPendentes.forEach(v=>{
+    linhasTexto.push('Venda '+v.numero+' - '+fmtDate(v.data)+' - '+fmtMoney(v.total));
+    v.itens.forEach(it=>linhasTexto.push('  '+it.nome+': '+fmtQty(it.quantidade)+' x '+fmtMoney(it.precoUnit)+' = '+fmtMoney(it.subtotal)));
+  });
+  const text = buildReceiptText('Comprovante de Débito', WS_META[ws].label, linhasTexto, [], []);
+  printDocument(html, text);
 }
 function printVenda(id){
   const d = cur();
