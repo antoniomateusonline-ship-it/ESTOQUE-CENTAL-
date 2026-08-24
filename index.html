@@ -392,6 +392,7 @@ function migrateIfNeeded(wsKey, raw){
     if(it.cor===undefined) it.cor = '';
     if(it.composicaoId===undefined) it.composicaoId = '';
     if(it.recPadraoId===undefined) it.recPadraoId = '';
+    if(it.referenciaId===undefined) it.referenciaId = '';
     if(it.outroTipo===undefined) it.outroTipo = '';
     if(!it.historicoPrecos) it.historicoPrecos = [];
     if(it.outroPronto===undefined) it.outroPronto = false;
@@ -1081,9 +1082,14 @@ function tagProntoListRowHtml(it){
   const tam = tamanhoObj(it.tamanhoId);
   const num = numeracaoObj(it.numeracaoId);
   const lv = stockLevel(it.quantidade, it.estoqueMinimo);
+  const rb = it.ribbonId ? cur().estoque.find(x=>x.id===it.ribbonId) : null;
+  const extras = [];
+  if(rb) extras.push('Ribbon: '+rb.nome);
+  if(it.referencia) extras.push('Ref: '+it.referencia);
   return `<div class="list-row">
     <div><div class="l-name">${esc(it.nome)}${num?` <span class="num-tag">${esc(num.nome)}</span>`:''}${tam&&tam.composicao?' <span class="cat-tag">Composição</span>':''}</div>
       <div class="l-sub">${esc(it.codigo)}${tam?' · '+esc(tam.nome):''} · Custo ${fmtMoney3(it.custo)}/un ${it.estoqueMinimo>0?'· '+badgeHtml(lv.badge, lv.text):''}</div>
+      ${extras.length?`<div class="l-sub">${esc(extras.join(' · '))}</div>`:''}
       ${composicaoInfoHtml(tam, it.empresaId)}</div>
     <div class="l-val" style="display:flex;align-items:center;gap:8px;">
       <div>${fmtQty(it.quantidade)} un.<div class="l-sub">${fmtMoney(it.preco)}/milheiro</div></div>
@@ -1203,6 +1209,8 @@ function openEstoqueForm(id){
       ${empresasCatalog.map(e=>`<option value="${e.id}" ${it.empresaId===e.id?'selected':''}>${esc(e.nome)}</option>`).join('')}
       <option value="__new__">+ Novo(a) ${termEmpresa().toLowerCase()}...</option>
     </select>`;
+  const referenciasCatalogo = allReferenciasList();
+  const ribbonsCatalogo = d.estoque.filter(x=>x.tipo==='Ribbon');
   const tagProntoFields = isEtq ? `<div id="tagProntoFields" style="display:${tipoAtualNorm==='Tag'?'block':'none'}">
     <div class="field"><label>Empresa / Marca</label>${empresaSelectHtmlPronto}</div>
     <div class="field"><label>Descrição do Produto</label><select id="f_descricaoproduto" onchange="updateDescricaoProduto()">
@@ -1211,6 +1219,14 @@ function openEstoqueForm(id){
     </select></div>
     <div class="field"><label>Numeração</label><select id="f_numeracao"><option value="">Nenhuma</option>
       ${(d.numeracoes||[]).map(n=>`<option value="${n.id}" ${it.numeracaoId===n.id?'selected':''}>${esc(n.nome)}</option>`).join('')}
+    </select></div>
+    ${referenciasCatalogo.length ? `<div class="field"><label>Referência (opcional)</label><select id="f_referenciapronto">
+      <option value="">Nenhuma</option>
+      ${referenciasCatalogo.map(r=>`<option value="${r.id}" ${it.referenciaId===r.id?'selected':''}>${esc(r.empresaNome)} · ${esc(r.codigo)}</option>`).join('')}
+    </select></div>` : ''}
+    <div class="field"><label>Ribbon utilizado (opcional)</label><select id="f_ribbonpronto">
+      <option value="">Nenhum</option>
+      ${ribbonsCatalogo.map(r=>`<option value="${r.id}" ${it.ribbonId===r.id?'selected':''}>${esc(r.nome)} (${esc(r.tipoRibbon)})</option>`).join('')}
     </select></div>
     <div id="composicaoProntoFields"></div>
     <p class="hint">Normalmente este produto é gerado automaticamente pela ação "Produzir". Use este formulário para ajustes manuais. A descrição, numeração e preço vêm do cadastro em Modelos.</p>
@@ -1468,6 +1484,10 @@ function saveEstoque(e){
     outroPronto: (isEtq && tipo==='Outro') ? (tipoRadio==='OutroPronto') : false,
     composicaoId: (isEtq && tipo==='Tag' && document.getElementById('f_composicaopronto')) ? document.getElementById('f_composicaopronto').value : '',
     recPadraoId: (isEtq && tipo==='Tag' && document.getElementById('f_recpadraopronto')) ? document.getElementById('f_recpadraopronto').value : '',
+    ribbonId: (isEtq && tipo==='Tag' && document.getElementById('f_ribbonpronto')) ? document.getElementById('f_ribbonpronto').value : '',
+    referenciaId: (isEtq && tipo==='Tag' && document.getElementById('f_referenciapronto')) ? document.getElementById('f_referenciapronto').value : '',
+    referencia: (isEtq && tipo==='Tag' && document.getElementById('f_referenciapronto') && document.getElementById('f_referenciapronto').value)
+      ? ((allReferenciasList().find(r=>r.id===document.getElementById('f_referenciapronto').value)||{}).codigo||'') : '',
     quantidade: quantidadeInformada,
     unidade: document.getElementById('f_unidade').value.trim()||'un',
     estoqueMinimo: estoqueMinimoInformado,
