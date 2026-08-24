@@ -1305,10 +1305,10 @@ function openEstoqueForm(id){
     <div class="field"><label>${termEmpresa()}</label>${empresaSelectHtml}</div>` : '';
 
   const qtyLabelTxt = isEtq ? (tipoAtualNorm==='Ribbon' ? 'Quantidade em estoque (metros)' : tipoAtualNorm==='TagMP' ? 'Quantidade em estoque (unidades)' : tipoAtualNorm==='Outro' ? 'Quantidade em estoque' : 'Quantidade produzida (unidades)') : 'Quantidade em estoque';
-  const custoLabelTxt = isEtq ? 'Custo por rolo (R$)' : 'Custo';
+  const custoLabelTxt = isEtq ? (tipoAtualNorm==='Tag' ? 'Custo por unidade (R$)' : 'Custo por rolo (R$)') : 'Custo';
   const precoLabelTxt = isEtq ? ((tipoAtualNorm==='Tag'||tipoAtualNorm==='Outro') ? 'Preço de venda' : 'Não aplicável') : 'Preço de venda';
   const showPreco = !isEtq || tipoAtualNorm==='Tag' || tipoAtualNorm==='Outro';
-  const showCusto = !isEtq || tipoAtualNorm==='TagMP' || tipoAtualNorm==='Outro';
+  const showCusto = !isEtq || tipoAtualNorm==='TagMP' || tipoAtualNorm==='Outro' || tipoAtualNorm==='Tag';
   const unidadeDefault = isEtq ? (tipoAtualNorm==='Ribbon'?'metro':tipoAtualNorm==='TagMP'?'rolo':tipoAtualNorm==='Outro'?(it.unidade||'un'):'un') : it.unidade;
 
 
@@ -1447,8 +1447,8 @@ function toggleTipoItem(tipoRadio){
   const of = document.getElementById('outroTipoFields'); if(of) of.style.display = tipo==='Outro'?'block':'none';
   const un = document.getElementById('f_unidade'); if(un && tipo!=='Outro') un.value = tipo==='Ribbon'?'metro':tipo==='TagMP'?'rolo':'un';
   const ql = document.getElementById('qtyLabel'); if(ql) ql.textContent = tipo==='Tag' ? 'Quantidade produzida (unidades)' : tipo==='Outro' ? 'Quantidade em estoque' : 'Quantidade em estoque ('+(tipo==='Ribbon'?'metros':'unidades')+')';
-  const cl = document.getElementById('custoLabel'); if(cl) cl.textContent = 'Custo por rolo (R$)';
-  const custoWrap = document.getElementById('custoWrap'); if(custoWrap) custoWrap.style.display = (tipo==='Ribbon'||tipo==='Tag') ? 'none' : 'block';
+  const cl = document.getElementById('custoLabel'); if(cl) cl.textContent = tipo==='Tag' ? 'Custo por unidade (R$)' : 'Custo por rolo (R$)';
+  const custoWrap = document.getElementById('custoWrap'); if(custoWrap) custoWrap.style.display = tipo==='Ribbon' ? 'none' : 'block';
   const pl = document.getElementById('precoLabel'); if(pl) pl.textContent = tipo==='Outro' ? 'Preço de venda' : 'Preço de venda (por milheiro - 1000 un)';
   const precoWrap = document.getElementById('precoWrap'); if(precoWrap) precoWrap.style.display = (tipo==='Tag'||tipo==='Outro') ? 'block' : 'none';
   const nomeWrap = document.getElementById('nomeFieldWrap'); const nomeInput = document.getElementById('f_nome');
@@ -1604,7 +1604,7 @@ function saveEstoque(e){
     quantidade: quantidadeInformada,
     unidade: document.getElementById('f_unidade').value.trim()||'un',
     estoqueMinimo: estoqueMinimoInformado,
-    custo: (isEtq && tipo==='Ribbon') ? (window._custoRibbonCalculado||0) : (isEtq && tipo==='Tag') ? custoExistente : (document.getElementById('f_custo') ? (parseFloat(document.getElementById('f_custo').value)||0) : 0),
+    custo: (isEtq && tipo==='Ribbon') ? (window._custoRibbonCalculado||0) : (document.getElementById('f_custo') ? (parseFloat(document.getElementById('f_custo').value)||0) : custoExistente),
     margem: 0,
     preco: (isEtq && tipo==='Ribbon') ? (window._custoRibbonCalculado||0) : (document.getElementById('f_preco') ? (parseFloat(document.getElementById('f_preco').value)||0) : 0),
     vendavel: isEtq ? (tipo==='Tag' || tipo==='Outro') : true,
