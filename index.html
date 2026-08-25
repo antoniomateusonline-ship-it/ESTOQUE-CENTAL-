@@ -889,7 +889,8 @@ function renderEstoque(){
             content += `<div style="padding:10px 4px 4px;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);">Etiquetas de Composição Prontas</div>`;
             content += compG.length ? prontosPorReferenciaHtml(compG, 'comp-'+g.key) : `<div class="empty" style="padding:14px;"><p>Nenhuma etiqueta de composição pronta.</p></div>`;
           }
-          return collapsiblePanel('prontos-emp-'+g.key, esc(g.nome), sub, '', content);
+          const acoes = g.key!=='__sem__' ? `<button class="btn btn-ghost btn-sm" title="Imprimir produtos prontos desta empresa" onclick="printEstoque('prontos','${g.key}')">${iconPrint()} Imprimir</button>` : '';
+          return collapsiblePanel('prontos-emp-'+g.key, esc(g.nome), sub, acoes, content);
         }).join('');
       } else {
         out += `<div class="panel"><div class="empty" style="padding:24px;"><p>Nenhum produto pronto ainda. Cadastre uma empresa em Cadastros e use "Produzir" numa matéria-prima para gerar.</p></div></div>`;
@@ -1402,11 +1403,25 @@ function qrPagamentoConfigHtml(){
     <div class="field"><label>Foto do QR Code</label><input type="file" accept="image/*" onchange="handleQrPagamentoUpload(this)">
       <input type="hidden" id="f_qrfoto" value="${esc(qr.foto||'')}"></div>
     <div class="field"><label>Legenda (chave Pix, por exemplo)</label><input id="f_qrlegenda" value="${esc(qr.legenda||'')}" placeholder="Ex.: chave-pix@empresa.com"></div>
-    <div style="display:flex;gap:8px;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button type="button" class="btn btn-accent btn-sm" onclick="salvarQrPagamento()">${iconCheck()} Salvar</button>
+      ${qr.foto?`<button type="button" class="btn btn-ghost btn-sm" onclick="printQrPagamentoIndividual()">${iconPrint()} Imprimir QR Code</button>`:''}
       ${qr.foto?`<button type="button" class="btn btn-ghost btn-sm" onclick="removerQrPagamento()">${iconTrash()} Remover</button>`:''}
     </div>
   </div>`;
+}
+function printQrPagamentoIndividual(){
+  const d = cur();
+  const qr = d.qrPagamento || {foto:'', legenda:''};
+  if(!qr.foto){ showToast('Nenhum QR Code cadastrado ainda.', 'bad'); return; }
+  const html = `<div class="doc">${docHeadHtml('QR Code de Pagamento', WS_META[ws].label)}
+    <div style="text-align:center;margin:24px 0;">
+      <img src="${qr.foto}" style="width:220px;height:220px;object-fit:contain;">
+      ${qr.legenda?`<div style="font-size:14px;margin-top:12px;font-weight:600;">${esc(qr.legenda)}</div>`:''}
+    </div>
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div><div></div></div></div>`;
+  const text = buildReceiptText('QR Code de Pagamento', WS_META[ws].label, qr.legenda?['Chave de pagamento: '+qr.legenda]:['(imagem do QR Code não é exibida neste formato de texto)'], [], []);
+  printDocument(html, text);
 }
 function salvarQrPagamento(){
   const d = cur();
@@ -3275,6 +3290,36 @@ function renderFinanceiro(){
     }).join('')}</tbody></table>
   </div>`;
 
+  const debitosPorResp = {};
+  listaGrupos.forEach(g=>{
+    if(!g.empresaId) return;
+    const empObj = empresaObj(g.empresaId);
+    if(!empObj || !empObj.responsavelFinanceiroId) return;
+    const total = g.vendas.reduce((s,v)=>s+v.total,0);
+    const pago = g.vendas.filter(v=>v.statusPagamento!=='Pendente').reduce((s,v)=>s+v.total,0);
+    const pendente = total-pago;
+    if(pendente<=0) return;
+    if(!debitosPorResp[empObj.responsavelFinanceiroId]) debitosPorResp[empObj.responsavelFinanceiroId] = [];
+    debitosPorResp[empObj.responsavelFinanceiroId].push({ empresaId: g.empresaId, nome: g.nome, pendente });
+  });
+  const respsComDebito = Object.keys(debitosPorResp);
+  if(respsComDebito.length){
+    html += `<div class="panel"><div class="panel-head"><h3>Débitos por Responsável Financeiro</h3></div>
+      <table><thead><tr><th>Responsável</th><th>Empresas com débito</th><th>Total em aberto</th><th></th></tr></thead>
+      <tbody>${respsComDebito.map(respId=>{
+        const resp = (d.responsaveisFinanceiros||[]).find(r=>r.id===respId);
+        const lista = debitosPorResp[respId];
+        const totalResp = lista.reduce((s,x)=>s+x.pendente,0);
+        return `<tr>
+          <td>${resp?esc(resp.nome)+' <span class="mono" style="color:var(--ink-soft);">('+esc(resp.codigo)+')</span>':'—'}</td>
+          <td>${lista.map(x=>esc(x.nome)+' ('+fmtMoney(x.pendente)+')').join(', ')}</td>
+          <td class="mono">${badgeHtml('warn', fmtMoney(totalResp))}</td>
+          <td><button class="btn btn-ghost btn-sm" onclick="abrirSelecaoComprovanteResponsavel('${respId}')">${iconPrint()} Emitir comprovante</button></td>
+        </tr>`;
+      }).join('')}</tbody></table>
+    </div>`;
+  }
+
   if(financeiroEmpresaSelecionada){
     const g = grupos[financeiroEmpresaSelecionada];
     if(g){
@@ -3905,35 +3950,79 @@ function signLineHtml(){
   const cfg = cur().configImpressao || {};
   return cfg.assinatura!==false ? '<div class="sign-line">Assinatura</div>' : '<div></div>';
 }
-function printComprovanteDebito(empresaKey){
+function abrirSelecaoComprovanteResponsavel(respId){
   const d = cur();
-  const empObj = empresaKey!=='__semempresa__' ? empresaObj(empresaKey) : null;
-  const nomeGrupo = empObj ? empObj.nome : 'Cliente avulso';
-  const resp = (empObj && empObj.responsavelFinanceiroId) ? (d.responsaveisFinanceiros||[]).find(r=>r.id===empObj.responsavelFinanceiroId) : null;
-  const vendasPendentes = d.vendas.filter(v=>v.status!=='Cancelada' && v.statusPagamento==='Pendente' && (v.empresaId||'__semempresa__')===empresaKey)
-    .sort((a,b)=>new Date(a.data)-new Date(b.data));
-  if(!vendasPendentes.length){ showToast('Não há débitos pendentes para esta empresa.', 'bad'); return; }
-  const totalDebito = vendasPendentes.reduce((s,v)=>s+v.total,0);
+  const resp = (d.responsaveisFinanceiros||[]).find(r=>r.id===respId);
+  if(!resp) return;
+  const vendasValidas = d.vendas.filter(v=>v.status!=='Cancelada');
+  const empresasDoResp = (d.empresas||[]).filter(e=>e.responsavelFinanceiroId===respId);
+  const itensSelecao = empresasDoResp.map(e=>{
+    const vendasEmp = vendasValidas.filter(v=>v.empresaId===e.id && v.statusPagamento==='Pendente');
+    const pendente = vendasEmp.reduce((s,v)=>s+v.total,0);
+    return { empresaId: e.id, nome: e.nome, pendente };
+  }).filter(x=>x.pendente>0);
+  if(!itensSelecao.length){ showToast('Não há débitos pendentes para este responsável.', 'bad'); return; }
+  openModal(`
+    <div class="modal-head"><h3>Comprovante de débito · ${esc(resp.nome)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Escolha quais empresas entram no comprovante — se o cliente quiser pagar só uma, desmarque as demais. O total é somado no mesmo relatório.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        ${itensSelecao.map(x=>`<label style="display:flex;align-items:center;gap:8px;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:10px 12px;">
+          <span style="display:flex;align-items:center;gap:8px;"><input type="checkbox" class="f_empresadebito" value="${x.empresaId}" checked style="width:auto;margin:0;">${esc(x.nome)}</span>
+          <span class="mono">${fmtMoney(x.pendente)}</span>
+        </label>`).join('')}
+      </div>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-accent" onclick="confirmarComprovanteResponsavel()">${iconPrint()} Gerar comprovante</button></div>
+  `);
+}
+function confirmarComprovanteResponsavel(){
+  const marcadas = Array.from(document.querySelectorAll('.f_empresadebito:checked')).map(el=>el.value);
+  if(!marcadas.length){ showToast('Selecione ao menos uma empresa.', 'bad'); return; }
+  closeModal();
+  printComprovanteDebito(marcadas);
+}
+function printComprovanteDebito(empresaKeys){
+  const d = cur();
+  const chaves = Array.isArray(empresaKeys) ? empresaKeys : [empresaKeys];
+  const grupos = chaves.map(key=>{
+    const empObj = key!=='__semempresa__' ? empresaObj(key) : null;
+    const nomeGrupo = empObj ? empObj.nome : 'Cliente avulso';
+    const vendasPendentes = d.vendas.filter(v=>v.status!=='Cancelada' && v.statusPagamento==='Pendente' && (v.empresaId||'__semempresa__')===key)
+      .sort((a,b)=>new Date(a.data)-new Date(b.data));
+    return { key, nomeGrupo, empObj, vendasPendentes, total: vendasPendentes.reduce((s,v)=>s+v.total,0) };
+  }).filter(g=>g.vendasPendentes.length);
+  if(!grupos.length){ showToast('Não há débitos pendentes para essa seleção.', 'bad'); return; }
+  const respPrimeiro = (grupos[0].empObj && grupos[0].empObj.responsavelFinanceiroId) ? (d.responsaveisFinanceiros||[]).find(r=>r.id===grupos[0].empObj.responsavelFinanceiroId) : null;
+  const totalGeral = grupos.reduce((s,g)=>s+g.total,0);
+  const varias = grupos.length>1;
   const body = `
     <table><tbody>
-      <tr><td style="font-weight:600;">${termEmpresa()}</td><td>${esc(nomeGrupo)}</td></tr>
-      <tr><td style="font-weight:600;">Responsável Financeiro</td><td>${resp?esc(resp.nome)+' (Código: '+esc(resp.codigo)+')':'Não informado'}</td></tr>
-      <tr><td style="font-weight:600;">Total em aberto</td><td style="font-weight:700;">${fmtMoney(totalDebito)}</td></tr>
+      ${respPrimeiro?`<tr><td style="font-weight:600;">Responsável Financeiro</td><td>${esc(respPrimeiro.nome)} (Código: ${esc(respPrimeiro.codigo)})</td></tr>`:''}
+      <tr><td style="font-weight:600;">${varias?termEmpresa()+'s incluídas':termEmpresa()}</td><td>${esc(grupos.map(g=>g.nomeGrupo).join(', '))}</td></tr>
+      <tr><td style="font-weight:600;">Total geral em aberto</td><td style="font-weight:700;">${fmtMoney(totalGeral)}</td></tr>
     </tbody></table>
-    <h3 style="font-family:'Space Grotesk';margin:18px 0 8px;">Vendas em aberto</h3>
-    ${vendasPendentes.map(v=>`
-      <div style="margin-bottom:14px;padding-bottom:10px;border-bottom:1px dashed #999;">
-        <div style="font-weight:600;font-size:12px;">Venda ${esc(v.numero)} — ${fmtDate(v.data)} — Total: ${fmtMoney(v.total)}</div>
-        <table style="margin-top:4px;"><thead><tr><th>Material</th><th>Qtd</th><th>Preço</th><th>Subtotal</th></tr></thead>
-        <tbody>${v.itens.map(it=>`<tr><td>${esc(it.nome)}</td><td>${fmtQty(it.quantidade)} ${esc(it.unidade||'')}</td><td>${fmtMoney(it.precoUnit)}</td><td>${fmtMoney(it.subtotal)}</td></tr>`).join('')}</tbody></table>
-      </div>`).join('')}
-    <div class="doc-total"><div class="grand">Total do débito: ${fmtMoney(totalDebito)}</div></div>`;
+    ${grupos.map(g=>`
+      <h3 style="font-family:'Space Grotesk';margin:18px 0 8px;">${varias?esc(g.nomeGrupo)+' — ':''}Vendas em aberto (${fmtMoney(g.total)})</h3>
+      ${g.vendasPendentes.map(v=>`
+        <div style="margin-bottom:14px;padding-bottom:10px;border-bottom:1px dashed #999;">
+          <div style="font-weight:600;font-size:12px;">Venda ${esc(v.numero)} — ${fmtDate(v.data)} — Total: ${fmtMoney(v.total)}</div>
+          <table style="margin-top:4px;"><thead><tr><th>Material</th><th>Qtd</th><th>Preço</th><th>Subtotal</th></tr></thead>
+          <tbody>${v.itens.map(it=>`<tr><td>${esc(it.nome)}</td><td>${fmtQty(it.quantidade)} ${esc(it.unidade||'')}</td><td>${fmtMoney(it.precoUnit)}</td><td>${fmtMoney(it.subtotal)}</td></tr>`).join('')}</tbody></table>
+        </div>`).join('')}`).join('')}
+    <div class="doc-total"><div class="grand">Total geral do débito: ${fmtMoney(totalGeral)}</div></div>`;
   const html = `<div class="doc">${docHeadHtml('Comprovante de Débito · '+WS_META[ws].label, 'Emitido em '+fmtDate(todayISO()))}${body}
     <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
-  const linhasTexto = [termEmpresa()+': '+nomeGrupo, 'Responsável: '+(resp?resp.nome+' ('+resp.codigo+')':'Não informado'), 'Total em aberto: '+fmtMoney(totalDebito), ''];
-  vendasPendentes.forEach(v=>{
-    linhasTexto.push('Venda '+v.numero+' - '+fmtDate(v.data)+' - '+fmtMoney(v.total));
-    v.itens.forEach(it=>linhasTexto.push('  '+it.nome+': '+fmtQty(it.quantidade)+' x '+fmtMoney(it.precoUnit)+' = '+fmtMoney(it.subtotal)));
+  const linhasTexto = [];
+  if(respPrimeiro) linhasTexto.push('Responsável: '+respPrimeiro.nome+' ('+respPrimeiro.codigo+')');
+  linhasTexto.push((varias?termEmpresa()+'s':termEmpresa())+': '+grupos.map(g=>g.nomeGrupo).join(', '));
+  linhasTexto.push('Total geral em aberto: '+fmtMoney(totalGeral), '');
+  grupos.forEach(g=>{
+    if(varias) linhasTexto.push('=== '+g.nomeGrupo.toUpperCase()+' ('+fmtMoney(g.total)+') ===');
+    g.vendasPendentes.forEach(v=>{
+      linhasTexto.push('Venda '+v.numero+' - '+fmtDate(v.data)+' - '+fmtMoney(v.total));
+      v.itens.forEach(it=>linhasTexto.push('  '+it.nome+': '+fmtQty(it.quantidade)+' x '+fmtMoney(it.precoUnit)+' = '+fmtMoney(it.subtotal)));
+    });
   });
   const text = buildReceiptText('Comprovante de Débito', WS_META[ws].label, linhasTexto, [], []);
   printDocument(html, text);
@@ -3971,20 +4060,22 @@ function printPedido(id){
     ['Cliente: '+p.cliente, 'Data: '+fmtDate(p.data), 'Status: '+p.status], p.itens, ['Total: '+fmtMoney(p.total)], p.observacoes);
   printDocument(html, text);
 }
-function printEstoque(filtro){
+function printEstoque(filtro, empresaFiltroId){
   filtro = filtro || 'todos';
   const d = cur(); const isEtq = ws==='etiquetag';
   let body = '';
   let textoLinhas = [];
   let titulo = 'Relatório de estoque';
+  const empFiltroObj = empresaFiltroId ? empresaObj(empresaFiltroId) : null;
   if(isEtq){
     const ribbons = d.estoque.filter(x=>x.tipo==='Ribbon');
     const tagMPsTag = d.estoque.filter(x=>x.tipo==='TagMP' && x.categoriaTag!=='Composição');
     const tagMPsComposicao = d.estoque.filter(x=>x.tipo==='TagMP' && x.categoriaTag==='Composição');
-    const tagsProntosTag = d.estoque.filter(x=>x.tipo==='Tag' && x.categoriaTag!=='Composição');
-    const tagsProntosComposicao = d.estoque.filter(x=>x.tipo==='Tag' && x.categoriaTag==='Composição');
+    const filtroEmp = p => !empresaFiltroId || p.empresaId===empresaFiltroId;
+    const tagsProntosTag = d.estoque.filter(x=>x.tipo==='Tag' && x.categoriaTag!=='Composição' && filtroEmp(x));
+    const tagsProntosComposicao = d.estoque.filter(x=>x.tipo==='Tag' && x.categoriaTag==='Composição' && filtroEmp(x));
 
-    if(filtro==='materiaprima' || filtro==='todos'){
+    if((filtro==='materiaprima' || filtro==='todos') && !empresaFiltroId){
       titulo = filtro==='materiaprima' ? 'Relatório de matéria-prima' : titulo;
       body += `<h3 style="font-family:'Space Grotesk';margin-bottom:6px;">Ribbons</h3>
       <table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Qtd</th><th>Mín.</th><th>Custo/m</th><th>Valor total</th></tr></thead>
@@ -4006,7 +4097,7 @@ function printEstoque(filtro){
     }
 
     if(filtro==='prontos' || filtro==='todos'){
-      titulo = filtro==='prontos' ? 'Relatório de produtos prontos' : titulo;
+      titulo = empFiltroObj ? 'Produtos prontos · '+empFiltroObj.nome : (filtro==='prontos' ? 'Relatório de produtos prontos' : titulo);
       const tabelaPronto = (lista, titulo2, comComposicao)=>{
         body += `<h3 style="font-family:'Space Grotesk';margin-bottom:6px;margin-top:20px;">${titulo2}</h3>
         <table><thead><tr><th>Código</th><th>Item</th><th>Empresa</th><th>Numeração</th><th>Quantidade</th>${comComposicao?'<th>Composição têxtil</th><th>Recomendações</th>':''}<th>Preço/milheiro</th><th>Valor total</th></tr></thead>
@@ -4078,7 +4169,12 @@ function printDocument(html, text){
   const area = document.getElementById('printArea');
   area.className = cfg.formato==='termica80' ? 'thermal thermal80' : cfg.formato==='termica58' ? 'thermal thermal58' : '';
   area.innerHTML = cfg.formato && cfg.formato!=='a4' ? html.replace('class="doc"','class="doc thermal"') : html;
-  setTimeout(()=>window.print(), 50);
+  const imgs = Array.from(area.querySelectorAll('img'));
+  if(!imgs.length){ setTimeout(()=>window.print(), 50); return; }
+  Promise.all(imgs.map(img=>{
+    if(img.complete && img.naturalWidth>0) return Promise.resolve();
+    return new Promise(resolve=>{ img.onload=resolve; img.onerror=resolve; setTimeout(resolve, 1500); });
+  })).then(()=>{ setTimeout(()=>window.print(), 100); });
 }
 
 let usuarios = [];
