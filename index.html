@@ -3314,7 +3314,10 @@ function renderFinanceiro(){
           <td>${resp?esc(resp.nome)+' <span class="mono" style="color:var(--ink-soft);">('+esc(resp.codigo)+')</span>':'—'}</td>
           <td>${lista.map(x=>esc(x.nome)+' ('+fmtMoney(x.pendente)+')').join(', ')}</td>
           <td class="mono">${badgeHtml('warn', fmtMoney(totalResp))}</td>
-          <td><button class="btn btn-ghost btn-sm" onclick="abrirSelecaoComprovanteResponsavel('${respId}')">${iconPrint()} Emitir comprovante</button></td>
+          <td><div class="row-actions">
+            <button class="btn btn-ghost btn-sm" onclick="abrirSelecaoComprovanteResponsavel('${respId}')">${iconPrint()} Emitir comprovante</button>
+            <button class="btn btn-ghost btn-sm" onclick="marcarTudoPagoResponsavel('${respId}')">${iconCheck()} Marcar tudo como pago</button>
+          </div></td>
         </tr>`;
       }).join('')}</tbody></table>
     </div>`;
@@ -3950,6 +3953,18 @@ function signLineHtml(){
   const cfg = cur().configImpressao || {};
   return cfg.assinatura!==false ? '<div class="sign-line">Assinatura</div>' : '<div></div>';
 }
+function marcarTudoPagoResponsavel(respId){
+  const d = cur();
+  const resp = (d.responsaveisFinanceiros||[]).find(r=>r.id===respId);
+  const empresasDoResp = (d.empresas||[]).filter(e=>e.responsavelFinanceiroId===respId).map(e=>e.id);
+  const vendasPendentes = d.vendas.filter(v=>v.status!=='Cancelada' && v.statusPagamento==='Pendente' && empresasDoResp.includes(v.empresaId));
+  if(!vendasPendentes.length){ showToast('Não há débitos pendentes para este responsável.', 'bad'); return; }
+  const total = vendasPendentes.reduce((s,v)=>s+v.total,0);
+  if(!confirm('Marcar '+vendasPendentes.length+' venda(s) ('+fmtMoney(total)+') de '+(resp?resp.nome:'')+' como pagas?')) return;
+  vendasPendentes.forEach(v=>v.statusPagamento='Pago');
+  saveWS(); renderAll();
+  showToast('Débito de '+(resp?resp.nome:'responsável')+' quitado.', 'good');
+}
 function abrirSelecaoComprovanteResponsavel(respId){
   const d = cur();
   const resp = (d.responsaveisFinanceiros||[]).find(r=>r.id===respId);
@@ -3973,7 +3988,9 @@ function abrirSelecaoComprovanteResponsavel(respId){
         </label>`).join('')}
       </div>
     </div>
-    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-accent" onclick="confirmarComprovanteResponsavel()">${iconPrint()} Gerar comprovante</button></div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button type="button" class="btn btn-ghost" onclick="marcarComprovanteResponsavelPago()">${iconCheck()} Marcar como pago</button>
+      <button type="button" class="btn btn-accent" onclick="confirmarComprovanteResponsavel()">${iconPrint()} Gerar comprovante</button></div>
   `);
 }
 function confirmarComprovanteResponsavel(){
@@ -3981,6 +3998,22 @@ function confirmarComprovanteResponsavel(){
   if(!marcadas.length){ showToast('Selecione ao menos uma empresa.', 'bad'); return; }
   closeModal();
   printComprovanteDebito(marcadas);
+}
+function marcarComprovanteResponsavelPago(){
+  const marcadas = Array.from(document.querySelectorAll('.f_empresadebito:checked')).map(el=>el.value);
+  if(!marcadas.length){ showToast('Selecione ao menos uma empresa.', 'bad'); return; }
+  const d = cur();
+  let qtd = 0;
+  d.vendas.forEach(v=>{
+    if(v.status!=='Cancelada' && v.statusPagamento==='Pendente' && marcadas.includes(v.empresaId)){
+      v.statusPagamento = 'Pago';
+      qtd++;
+    }
+  });
+  saveWS();
+  closeModal();
+  renderAll();
+  showToast(qtd+' venda(s) marcada(s) como paga(s).', 'good');
 }
 function printComprovanteDebito(empresaKeys){
   const d = cur();
