@@ -4193,34 +4193,56 @@ function printEstoque(filtro, empresaFiltroId){
     if(filtro==='prontos' || filtro==='todos'){
       titulo = empFiltroObj ? 'Produtos prontos · '+empFiltroObj.nome : (filtro==='prontos' ? 'Relatório de produtos prontos' : titulo);
       const tabelaPronto = (lista, titulo2, comComposicao)=>{
-        body += `<h3 style="font-family:'Space Grotesk';margin-bottom:6px;margin-top:20px;">${titulo2}</h3>
-        <table><thead><tr><th>Código</th><th>Item</th><th>Empresa</th><th>Numeração</th><th>Quantidade</th>${comComposicao?'<th>Composição têxtil</th><th>Recomendações</th>':''}<th>Preço/milheiro</th><th>Valor total</th></tr></thead>
-        <tbody>${lista.map(p=>{
-          const emp = empresaObj(p.empresaId); const tam = tamanhoObj(p.tamanhoId); const num = numeracaoObj(p.numeracaoId);
-          let compCell = '', recCell = '';
-          if(comComposicao && tam){
-            const perfis = tam.composicoes||[];
-            const perfilAtivo = perfis.length===1 ? perfis[0] : perfis.find(x=>x.id===p.composicaoId);
-            compCell = `<td>${perfilAtivo?esc(formatComposicoes(perfilAtivo.fibras)):'—'}</td>`;
-            const recs = recomendacoesEfetivas(tam, p.empresaId, p.recPadraoId);
-            recCell = `<td>${recs.length?recs.map(r=>`<span title="${esc(r)}" style="margin-right:3px;">${iconCuidado(r,14)}</span>`).join(''):'—'}</td>`;
-          }
-          return `<tr><td>${esc(p.codigo)}</td><td>${esc(p.nome)}</td><td>${emp?esc(emp.nome):'—'}</td><td>${num?esc(num.nome):'—'}</td><td><strong>${fmtQty(p.quantidade)}</strong> un.</td>${comComposicao?compCell+recCell:''}<td>${fmtMoney(p.preco)}</td><td>${fmtMoney(itemValorEstoque(p))}</td></tr>`;
-        }).join('')||`<tr><td colspan="${comComposicao?8:6}">Nenhum item</td></tr>`}</tbody></table>`;
-        textoLinhas.push('--- '+titulo2.toUpperCase()+' ---');
+        const temReferencias = lista.some(p=>p.referencia);
+        const gruposRef = {};
         lista.forEach(p=>{
-          const emp = empresaObj(p.empresaId); const num = numeracaoObj(p.numeracaoId); const tam = tamanhoObj(p.tamanhoId);
-          let linha = p.nome+' — '+(emp?emp.nome:'sem empresa')+' — '+(num?num.nome:'sem numeração')+': '+fmtQty(p.quantidade)+' un.';
-          if(comComposicao && tam){
-            const perfis = tam.composicoes||[];
-            const perfilAtivo = perfis.length===1 ? perfis[0] : perfis.find(x=>x.id===p.composicaoId);
-            if(perfilAtivo) linha += ' | Composição: '+formatComposicoes(perfilAtivo.fibras);
-            textoLinhas.push(linha);
-            const recs = recomendacoesEfetivas(tam, p.empresaId, p.recPadraoId);
-            if(recs.length) textoLinhas.push('__ICONS__'+recs.join('|'));
-          } else {
-            textoLinhas.push(linha);
-          }
+          const chave = p.referencia || '__semref__';
+          if(!gruposRef[chave]) gruposRef[chave] = [];
+          gruposRef[chave].push(p);
+        });
+        const chavesRef = Object.keys(gruposRef).sort((a,b)=>{
+          if(a==='__semref__') return 1;
+          if(b==='__semref__') return -1;
+          return a.localeCompare(b);
+        });
+        body += `<h3 style="font-family:'Space Grotesk';margin-bottom:6px;margin-top:20px;">${titulo2}</h3>`;
+        if(!lista.length){
+          body += `<table><thead><tr><th>Código</th><th>Item</th><th>Empresa</th>${temReferencias?'<th>Referência</th>':''}<th>Numeração</th><th>Quantidade</th>${comComposicao?'<th>Composição têxtil</th><th>Recomendações</th>':''}<th>Preço/milheiro</th><th>Valor total</th></tr></thead><tbody><tr><td colspan="${(temReferencias?9:8)+(comComposicao?2:0)}">Nenhum item</td></tr></tbody></table>`;
+        }
+        chavesRef.forEach(chaveRef=>{
+          const itensGrupo = gruposRef[chaveRef];
+          if(temReferencias) body += `<div style="font-weight:700;font-size:12px;margin:12px 0 4px;">${chaveRef==='__semref__'?'Sem referência definida':'Referência: '+esc(chaveRef)}</div>`;
+          body += `<table><thead><tr><th>Código</th><th>Item</th><th>Empresa</th><th>Numeração</th><th>Quantidade</th>${comComposicao?'<th>Composição têxtil</th><th>Recomendações</th>':''}<th>Preço/milheiro</th><th>Valor total</th></tr></thead>
+          <tbody>${itensGrupo.map(p=>{
+            const emp = empresaObj(p.empresaId); const tam = tamanhoObj(p.tamanhoId); const num = numeracaoObj(p.numeracaoId);
+            let compCell = '', recCell = '';
+            if(comComposicao && tam){
+              const perfis = tam.composicoes||[];
+              const perfilAtivo = perfis.length===1 ? perfis[0] : perfis.find(x=>x.id===p.composicaoId);
+              compCell = `<td>${perfilAtivo?esc(formatComposicoes(perfilAtivo.fibras)):'—'}</td>`;
+              const recs = recomendacoesEfetivas(tam, p.empresaId, p.recPadraoId);
+              recCell = `<td>${recs.length?recs.map(r=>`<span title="${esc(r)}" style="margin-right:3px;">${iconCuidado(r,14)}</span>`).join(''):'—'}</td>`;
+            }
+            return `<tr><td>${esc(p.codigo)}</td><td>${esc(p.nome)}</td><td>${emp?esc(emp.nome):'—'}</td><td>${num?esc(num.nome):'—'}</td><td><strong>${fmtQty(p.quantidade)}</strong> un.</td>${comComposicao?compCell+recCell:''}<td>${fmtMoney(p.preco)}</td><td>${fmtMoney(itemValorEstoque(p))}</td></tr>`;
+          }).join('')}</tbody></table>`;
+        });
+        textoLinhas.push('--- '+titulo2.toUpperCase()+' ---');
+        chavesRef.forEach(chaveRef=>{
+          if(temReferencias) textoLinhas.push(chaveRef==='__semref__'?'[Sem referência definida]':'[Referência: '+chaveRef+']');
+          gruposRef[chaveRef].forEach(p=>{
+            const emp = empresaObj(p.empresaId); const num = numeracaoObj(p.numeracaoId); const tam = tamanhoObj(p.tamanhoId);
+            let linha = p.nome+' — '+(emp?emp.nome:'sem empresa')+' — '+(num?num.nome:'sem numeração')+': '+fmtQty(p.quantidade)+' un.';
+            if(comComposicao && tam){
+              const perfis = tam.composicoes||[];
+              const perfilAtivo = perfis.length===1 ? perfis[0] : perfis.find(x=>x.id===p.composicaoId);
+              if(perfilAtivo) linha += ' | Composição: '+formatComposicoes(perfilAtivo.fibras);
+              textoLinhas.push(linha);
+              const recs = recomendacoesEfetivas(tam, p.empresaId, p.recPadraoId);
+              if(recs.length) textoLinhas.push('__ICONS__'+recs.join('|'));
+            } else {
+              textoLinhas.push(linha);
+            }
+          });
         });
       };
       tabelaPronto(tagsProntosTag, 'Tags Prontas', false);
