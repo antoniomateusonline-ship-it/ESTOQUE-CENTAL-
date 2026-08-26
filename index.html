@@ -359,6 +359,8 @@ function migrateIfNeeded(wsKey, raw){
   if(!raw.vendas) raw.vendas = [];
   raw.vendas.forEach(v=>{
     if(!v.statusPagamento) v.statusPagamento = 'Pago';
+    if(v.valorRecebido===undefined) v.valorRecebido = v.statusPagamento==='Pago' ? v.total : 0;
+    if(v.descontoPagamento===undefined) v.descontoPagamento = 0;
     if(v.entregue===undefined) v.entregue = true;
     if(v.empresaId===undefined){
       const found = raw.empresas.find(e=>e.nome.toLowerCase()===(v.cliente||'').toLowerCase());
@@ -554,6 +556,7 @@ function getEtiquetasPorMetro(tam){
 }
 function getConsumoMetros(tam){ const epm = getEtiquetasPorMetro(tam); return epm>0 ? 1/epm : 0; }
 function passoDisplay(tam){ if(!tam) return 0; if(tam.passoMm>0) return tam.passoMm; const cm=getConsumoMetros(tam); return cm>0 ? cm*1000 : 0; }
+function saldoAbertoVenda(v){ return Math.max(0, v.total - (v.valorRecebido||0) - (v.descontoPagamento||0)); }
 function itemValorEstoque(it){
   if(isTagProntoEtq(it)){ return (it.quantidade/1000)*it.preco; }
   return it.quantidade*it.preco;
@@ -3257,7 +3260,7 @@ function renderFinanceiro(){
     return totalB-totalA;
   });
   const totalGeral = vendasValidas.reduce((s,v)=>s+v.total,0);
-  const totalPago = vendasValidas.filter(v=>v.statusPagamento!=='Pendente').reduce((s,v)=>s+v.total,0);
+  const totalPago = vendasValidas.reduce((s,v)=>s+(v.total-saldoAbertoVenda(v)),0);
   const totalPendente = totalGeral-totalPago;
 
   html += `<div class="kpi-grid">
@@ -3270,7 +3273,7 @@ function renderFinanceiro(){
     <table><thead><tr><th>Empresa / Cliente</th><th>Responsável Financeiro</th><th>Vendas</th><th>Total</th><th>Pago</th><th>Débito Pendente</th><th></th></tr></thead>
     <tbody>${listaGrupos.map(g=>{
       const total = g.vendas.reduce((s,v)=>s+v.total,0);
-      const pago = g.vendas.filter(v=>v.statusPagamento!=='Pendente').reduce((s,v)=>s+v.total,0);
+      const pago = g.vendas.reduce((s,v)=>s+(v.total-saldoAbertoVenda(v)),0);
       const pendente = total-pago;
       const key = g.empresaId||'__semempresa__';
       const empObj = g.empresaId ? empresaObj(g.empresaId) : null;
@@ -3296,7 +3299,7 @@ function renderFinanceiro(){
     const empObj = empresaObj(g.empresaId);
     if(!empObj || !empObj.responsavelFinanceiroId) return;
     const total = g.vendas.reduce((s,v)=>s+v.total,0);
-    const pago = g.vendas.filter(v=>v.statusPagamento!=='Pendente').reduce((s,v)=>s+v.total,0);
+    const pago = g.vendas.reduce((s,v)=>s+(v.total-saldoAbertoVenda(v)),0);
     const pendente = total-pago;
     if(pendente<=0) return;
     if(!debitosPorResp[empObj.responsavelFinanceiroId]) debitosPorResp[empObj.responsavelFinanceiroId] = [];
@@ -3328,21 +3331,25 @@ function renderFinanceiro(){
     if(g){
       html += `<div class="panel"><div class="panel-head"><div><h3>Histórico · ${esc(g.nome)}</h3><p>Vendas independentes desta empresa, mais recentes primeiro, com os materiais comprados em cada uma.</p></div>
         <button class="btn btn-ghost btn-sm" onclick="verHistoricoEmpresa('')">${iconX()} Fechar</button></div>
-        ${[...g.vendas].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(v=>`
+        ${[...g.vendas].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(v=>{
+          const saldo = saldoAbertoVenda(v);
+          const parcial = saldo>0.005 && saldo<v.total-0.005;
+          const badge = saldo<=0.005 ? badgeHtml('good','Pago') : parcial ? badgeHtml('warn','Parcial: '+fmtMoney(saldo)+' em aberto') : badgeHtml('warn','Pendente');
+          return `
           <div style="border-top:1px solid var(--line-soft);padding:12px 4px;">
             <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
               <div><span class="code-tag">${esc(v.numero)}</span> <span class="l-sub">${fmtDate(v.data)}</span></div>
               <div style="display:flex;align-items:center;gap:8px;">
                 <span class="mono" style="font-weight:700;">${fmtMoney(v.total)}</span>
-                ${v.statusPagamento==='Pendente'?badgeHtml('warn','Pendente'):badgeHtml('good','Pago')}
-                <button class="btn btn-ghost btn-sm" onclick="togglePagamento('${v.id}')">${v.statusPagamento==='Pendente'?'Marcar pago':'Marcar pendente'}</button>
+                ${badge}
+                ${saldo>0.005?`<button class="btn btn-ghost btn-sm" onclick="abrirPagamentoDebitoModal(['${v.id}'],'${esc(g.nome)}')">Registrar pagamento</button>`:`<button class="btn btn-ghost btn-sm" onclick="togglePagamento('${v.id}')">Marcar pendente</button>`}
                 <button class="icon-btn" title="Imprimir" onclick="printVenda('${v.id}')">${iconPrint()}</button>
               </div>
             </div>
             <table style="margin-top:8px;"><thead><tr><th>Material</th><th>Qtd</th><th>Preço</th><th>Subtotal</th></tr></thead>
               <tbody>${v.itens.map(it=>`<tr><td>${esc(it.nome)}</td><td class="mono">${fmtQty(it.quantidade)} ${esc(it.unidade||'')}</td><td class="mono">${fmtMoney(it.precoUnit)}</td><td class="mono">${fmtMoney(it.subtotal)}</td></tr>`).join('')}</tbody>
             </table>
-          </div>`).join('')}
+          </div>`;}).join('')}
       </div>`;
     }
   }
@@ -3421,7 +3428,8 @@ function togglePagamento(vendaId){
   const d = cur();
   const v = d.vendas.find(x=>x.id===vendaId);
   if(!v) return;
-  v.statusPagamento = v.statusPagamento==='Pendente' ? 'Pago' : 'Pendente';
+  if(v.statusPagamento==='Pendente'){ v.statusPagamento = 'Pago'; v.valorRecebido = v.total - (v.descontoPagamento||0); }
+  else { v.statusPagamento = 'Pendente'; v.valorRecebido = 0; v.descontoPagamento = 0; }
   saveWS(); renderAll();
   showToast('Status de pagamento atualizado.', 'good');
 }
@@ -3646,9 +3654,12 @@ function saveVenda(e){
   const clienteNome = document.getElementById('f_cliente').value.trim();
   const empresaMatch = (d.empresas||[]).find(emp=>emp.nome.toLowerCase()===clienteNome.toLowerCase());
   const statusPagEl = document.getElementById('f_statuspagamento');
+  const totalVendaFinal = Math.max(0,subtotal-desconto);
+  const statusPagInicial = statusPagEl?statusPagEl.value:'Pago';
   const venda = { id: uid(), numero: nextCode('VD','vd'), pedidoId: null, cliente: clienteNome, empresaId: empresaMatch?empresaMatch.id:'',
     data: document.getElementById('f_data').value, formaPagamento: document.getElementById('f_pagamento').value,
-    desconto, itens, total: Math.max(0,subtotal-desconto), status:'Concluída', statusPagamento: statusPagEl?statusPagEl.value:'Pago', entregue: true,
+    desconto, itens, total: totalVendaFinal, status:'Concluída', statusPagamento: statusPagInicial,
+    valorRecebido: statusPagInicial==='Pago' ? totalVendaFinal : 0, descontoPagamento: 0, entregue: true,
     criadoPor: usuarioAtual?usuarioAtual.nome:'' };
   baixarEstoqueItens(itensValidos);
   d.vendas.push(venda);
@@ -3957,13 +3968,9 @@ function marcarTudoPagoResponsavel(respId){
   const d = cur();
   const resp = (d.responsaveisFinanceiros||[]).find(r=>r.id===respId);
   const empresasDoResp = (d.empresas||[]).filter(e=>e.responsavelFinanceiroId===respId).map(e=>e.id);
-  const vendasPendentes = d.vendas.filter(v=>v.status!=='Cancelada' && v.statusPagamento==='Pendente' && empresasDoResp.includes(v.empresaId));
+  const vendasPendentes = d.vendas.filter(v=>v.status!=='Cancelada' && saldoAbertoVenda(v)>0.005 && empresasDoResp.includes(v.empresaId));
   if(!vendasPendentes.length){ showToast('Não há débitos pendentes para este responsável.', 'bad'); return; }
-  const total = vendasPendentes.reduce((s,v)=>s+v.total,0);
-  if(!confirm('Marcar '+vendasPendentes.length+' venda(s) ('+fmtMoney(total)+') de '+(resp?resp.nome:'')+' como pagas?')) return;
-  vendasPendentes.forEach(v=>v.statusPagamento='Pago');
-  saveWS(); renderAll();
-  showToast('Débito de '+(resp?resp.nome:'responsável')+' quitado.', 'good');
+  abrirPagamentoDebitoModal(vendasPendentes.map(v=>v.id), resp?resp.nome:'');
 }
 function abrirSelecaoComprovanteResponsavel(respId){
   const d = cur();
@@ -3972,8 +3979,8 @@ function abrirSelecaoComprovanteResponsavel(respId){
   const vendasValidas = d.vendas.filter(v=>v.status!=='Cancelada');
   const empresasDoResp = (d.empresas||[]).filter(e=>e.responsavelFinanceiroId===respId);
   const itensSelecao = empresasDoResp.map(e=>{
-    const vendasEmp = vendasValidas.filter(v=>v.empresaId===e.id && v.statusPagamento==='Pendente');
-    const pendente = vendasEmp.reduce((s,v)=>s+v.total,0);
+    const vendasEmp = vendasValidas.filter(v=>v.empresaId===e.id && saldoAbertoVenda(v)>0.005);
+    const pendente = vendasEmp.reduce((s,v)=>s+saldoAbertoVenda(v),0);
     return { empresaId: e.id, nome: e.nome, pendente };
   }).filter(x=>x.pendente>0);
   if(!itensSelecao.length){ showToast('Não há débitos pendentes para este responsável.', 'bad'); return; }
@@ -3989,7 +3996,7 @@ function abrirSelecaoComprovanteResponsavel(respId){
       </div>
     </div>
     <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
-      <button type="button" class="btn btn-ghost" onclick="marcarComprovanteResponsavelPago()">${iconCheck()} Marcar como pago</button>
+      <button type="button" class="btn btn-ghost" onclick="prepararPagamentoComprovanteResponsavel('${respId}')">${iconCheck()} Marcar como pago</button>
       <button type="button" class="btn btn-accent" onclick="confirmarComprovanteResponsavel()">${iconPrint()} Gerar comprovante</button></div>
   `);
 }
@@ -3999,31 +4006,84 @@ function confirmarComprovanteResponsavel(){
   closeModal();
   printComprovanteDebito(marcadas);
 }
-function marcarComprovanteResponsavelPago(){
+function prepararPagamentoComprovanteResponsavel(respId){
   const marcadas = Array.from(document.querySelectorAll('.f_empresadebito:checked')).map(el=>el.value);
   if(!marcadas.length){ showToast('Selecione ao menos uma empresa.', 'bad'); return; }
   const d = cur();
-  let qtd = 0;
-  d.vendas.forEach(v=>{
-    if(v.status!=='Cancelada' && v.statusPagamento==='Pendente' && marcadas.includes(v.empresaId)){
-      v.statusPagamento = 'Pago';
-      qtd++;
-    }
+  const resp = (d.responsaveisFinanceiros||[]).find(r=>r.id===respId);
+  const vendaIds = d.vendas.filter(v=>v.status!=='Cancelada' && saldoAbertoVenda(v)>0.005 && marcadas.includes(v.empresaId)).map(v=>v.id);
+  if(!vendaIds.length){ showToast('Não há débitos pendentes nessa seleção.', 'bad'); return; }
+  abrirPagamentoDebitoModal(vendaIds, resp?resp.nome:'');
+}
+function abrirPagamentoDebitoModal(vendaIds, labelContexto){
+  const d = cur();
+  const vendas = d.vendas.filter(v=>vendaIds.includes(v.id));
+  const totalAberto = vendas.reduce((s,v)=>s+saldoAbertoVenda(v),0);
+  window._pagamentoDebitoVendaIds = vendaIds;
+  openModal(`
+    <div class="modal-head"><h3>Registrar pagamento${labelContexto?' · '+esc(labelContexto):''}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Total em aberto: <strong>${fmtMoney(totalAberto)}</strong> (${vendas.length} venda(s))</p>
+      <div class="field"><label>Este pagamento é</label>
+        <div class="radio-row">
+          <label><input type="radio" name="f_tipopagdebito" value="total" checked onchange="atualizarCampoPagamentoParcial()"> Valor total (${fmtMoney(totalAberto)})</label>
+          <label><input type="radio" name="f_tipopagdebito" value="parcial" onchange="atualizarCampoPagamentoParcial()"> Pagamento parcial</label>
+        </div>
+      </div>
+      <div class="field" id="campoValorParcial" style="display:none;"><label>Valor recebido agora (R$)</label><input type="number" min="0" step="0.01" id="f_valorrecebidodebito" placeholder="0,00">
+        <p class="hint">O restante continua em aberto, como débito pendente.</p></div>
+      <div class="field"><label>Houve desconto no pagamento? (opcional)</label><input type="number" min="0" step="0.01" id="f_descontodebito" placeholder="0,00">
+        <p class="hint">Valor abatido do débito (ex.: desconto por pagamento à vista), somado ao valor recebido.</p></div>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-accent" onclick="confirmarPagamentoDebito()">${iconCheck()} Confirmar pagamento</button></div>
+  `);
+}
+function atualizarCampoPagamentoParcial(){
+  const tipo = document.querySelector('input[name="f_tipopagdebito"]:checked').value;
+  const campo = document.getElementById('campoValorParcial');
+  if(campo) campo.style.display = tipo==='parcial' ? 'block' : 'none';
+}
+function confirmarPagamentoDebito(){
+  const vendaIds = window._pagamentoDebitoVendaIds||[];
+  const d = cur();
+  const vendasAlvo = d.vendas.filter(v=>vendaIds.includes(v.id)).sort((a,b)=>new Date(a.data)-new Date(b.data));
+  const totalAberto = vendasAlvo.reduce((s,v)=>s+saldoAbertoVenda(v),0);
+  const tipo = document.querySelector('input[name="f_tipopagdebito"]:checked').value;
+  const desconto = parseFloat(document.getElementById('f_descontodebito').value)||0;
+  let valorRecebido = tipo==='total' ? Math.max(0, totalAberto-desconto) : (parseFloat(document.getElementById('f_valorrecebidodebito').value)||0);
+  if(desconto<0 || valorRecebido<0){ showToast('Os valores não podem ser negativos.', 'bad'); return; }
+  const totalAplicar = valorRecebido+desconto;
+  if(totalAplicar<=0){ showToast('Informe o valor recebido e/ou o desconto.', 'bad'); return; }
+  if(totalAplicar > totalAberto+0.01){ showToast('O valor informado (recebido + desconto) é maior que o débito em aberto.', 'bad'); return; }
+  let restanteDesconto = desconto, restanteRecebido = valorRecebido;
+  vendasAlvo.forEach(v=>{
+    if(restanteDesconto<=0 && restanteRecebido<=0) return;
+    const saldo = saldoAbertoVenda(v);
+    if(saldo<=0.005) return;
+    const descAplicado = Math.min(saldo, restanteDesconto);
+    restanteDesconto -= descAplicado;
+    const recAplicado = Math.min(saldo-descAplicado, restanteRecebido);
+    restanteRecebido -= recAplicado;
+    v.valorRecebido = (v.valorRecebido||0) + recAplicado;
+    v.descontoPagamento = (v.descontoPagamento||0) + descAplicado;
+    if(saldoAbertoVenda(v) <= 0.005) v.statusPagamento = 'Pago';
   });
   saveWS();
   closeModal();
   renderAll();
-  showToast(qtd+' venda(s) marcada(s) como paga(s).', 'good');
+  const restante = totalAberto - totalAplicar;
+  showToast(restante>0.005 ? 'Pagamento registrado. Restam '+fmtMoney(restante)+' em aberto.' : 'Débito quitado com sucesso.', 'good');
 }
+
 function printComprovanteDebito(empresaKeys){
   const d = cur();
   const chaves = Array.isArray(empresaKeys) ? empresaKeys : [empresaKeys];
   const grupos = chaves.map(key=>{
     const empObj = key!=='__semempresa__' ? empresaObj(key) : null;
     const nomeGrupo = empObj ? empObj.nome : 'Cliente avulso';
-    const vendasPendentes = d.vendas.filter(v=>v.status!=='Cancelada' && v.statusPagamento==='Pendente' && (v.empresaId||'__semempresa__')===key)
+    const vendasPendentes = d.vendas.filter(v=>v.status!=='Cancelada' && saldoAbertoVenda(v)>0.005 && (v.empresaId||'__semempresa__')===key)
       .sort((a,b)=>new Date(a.data)-new Date(b.data));
-    return { key, nomeGrupo, empObj, vendasPendentes, total: vendasPendentes.reduce((s,v)=>s+v.total,0) };
+    return { key, nomeGrupo, empObj, vendasPendentes, total: vendasPendentes.reduce((s,v)=>s+saldoAbertoVenda(v),0) };
   }).filter(g=>g.vendasPendentes.length);
   if(!grupos.length){ showToast('Não há débitos pendentes para essa seleção.', 'bad'); return; }
   const respPrimeiro = (grupos[0].empObj && grupos[0].empObj.responsavelFinanceiroId) ? (d.responsaveisFinanceiros||[]).find(r=>r.id===grupos[0].empObj.responsavelFinanceiroId) : null;
@@ -4037,12 +4097,13 @@ function printComprovanteDebito(empresaKeys){
     </tbody></table>
     ${grupos.map(g=>`
       <h3 style="font-family:'Space Grotesk';margin:18px 0 8px;">${varias?esc(g.nomeGrupo)+' — ':''}Vendas em aberto (${fmtMoney(g.total)})</h3>
-      ${g.vendasPendentes.map(v=>`
+      ${g.vendasPendentes.map(v=>{ const saldo = saldoAbertoVenda(v); const parcial = saldo<v.total-0.005;
+        return `
         <div style="margin-bottom:14px;padding-bottom:10px;border-bottom:1px dashed #999;">
-          <div style="font-weight:600;font-size:12px;">Venda ${esc(v.numero)} — ${fmtDate(v.data)} — Total: ${fmtMoney(v.total)}</div>
+          <div style="font-weight:600;font-size:12px;">Venda ${esc(v.numero)} — ${fmtDate(v.data)} — Total: ${fmtMoney(v.total)}${parcial?' — Já pago: '+fmtMoney(v.total-saldo)+' — Em aberto: '+fmtMoney(saldo):''}</div>
           <table style="margin-top:4px;"><thead><tr><th>Material</th><th>Qtd</th><th>Preço</th><th>Subtotal</th></tr></thead>
           <tbody>${v.itens.map(it=>`<tr><td>${esc(it.nome)}</td><td>${fmtQty(it.quantidade)} ${esc(it.unidade||'')}</td><td>${fmtMoney(it.precoUnit)}</td><td>${fmtMoney(it.subtotal)}</td></tr>`).join('')}</tbody></table>
-        </div>`).join('')}`).join('')}
+        </div>`;}).join('')}`).join('')}
     <div class="doc-total"><div class="grand">Total geral do débito: ${fmtMoney(totalGeral)}</div></div>`;
   const html = `<div class="doc">${docHeadHtml('Comprovante de Débito · '+WS_META[ws].label, 'Emitido em '+fmtDate(todayISO()))}${body}
     <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
@@ -4205,9 +4266,12 @@ function printDocument(html, text){
   const imgs = Array.from(area.querySelectorAll('img'));
   if(!imgs.length){ setTimeout(()=>window.print(), 50); return; }
   Promise.all(imgs.map(img=>{
+    if(typeof img.decode === 'function'){
+      return img.decode().catch(()=>new Promise(resolve=>{ img.onload=resolve; img.onerror=resolve; setTimeout(resolve,1500); }));
+    }
     if(img.complete && img.naturalWidth>0) return Promise.resolve();
     return new Promise(resolve=>{ img.onload=resolve; img.onerror=resolve; setTimeout(resolve, 1500); });
-  })).then(()=>{ setTimeout(()=>window.print(), 100); });
+  })).then(()=>{ setTimeout(()=>window.print(), 150); });
 }
 
 let usuarios = [];
