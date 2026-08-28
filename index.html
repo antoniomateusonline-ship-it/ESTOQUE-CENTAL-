@@ -3963,6 +3963,8 @@ async function openBackupModal(){
           <button type="button" class="btn btn-accent" style="flex:1;" onclick="supabaseEnviarBackup()">${iconCheck()} Enviar para o Supabase</button>
           <button type="button" class="btn btn-ghost" style="flex:1;" onclick="supabasePuxarBackup()">${iconAdjust()} Puxar do Supabase</button>
         </div>
+        <button type="button" class="btn btn-ghost" style="width:100%;margin-top:8px;" onclick="baixarBackupDoSupabase()">${iconAdjust()} Baixar backup do Supabase (.json)</button>
+        <p class="hint" style="margin-top:4px;">Baixa o que está salvo no Supabase agora como um arquivo — útil se um dia precisar migrar pra outro banco de dados ou outra plataforma de hospedagem, sem depender deste projeto Supabase.</p>
         <p class="hint">A chave fica salva só neste navegador. Use a chave "anon public", nunca a "service_role". Como dois aparelhos podem mexer nos dados quase ao mesmo tempo, quem enviar por último "vence" — não é uma mesclagem inteligente.</p>
       </div>
     </div>
@@ -4083,6 +4085,33 @@ async function githubPuxarBackup(){
     showToast('Dados atualizados a partir do GitHub!', 'good');
     renderAll();
   } catch(e){ showToast('Não foi possível conectar ao GitHub. Verifique sua internet.', 'bad'); }
+}
+async function baixarBackupDoSupabase(){
+  const url = document.getElementById('f_sburl').value.trim().replace(/\/$/,'');
+  const anonKey = document.getElementById('f_sbkey').value.trim();
+  const registroId = document.getElementById('f_sbid').value.trim() || 'estoque-central';
+  if(!url || !anonKey){ showToast('Preencha a Project URL e a anon key.', 'bad'); return; }
+  showToast('Buscando backup no Supabase...', 'good');
+  try{
+    const resp = await fetch(url+'/rest/v1/estoque_dados?id=eq.'+encodeURIComponent(registroId)+'&select=dados,atualizado_em', {
+      headers: { 'apikey': anonKey, 'Authorization': 'Bearer '+anonKey }
+    });
+    if(!resp.ok){ showToast('Erro ao buscar (status '+resp.status+').', 'bad'); return; }
+    const rows = await resp.json();
+    if(!rows.length){ showToast('Nenhum backup encontrado com esse ID ainda.', 'bad'); return; }
+    const backup = rows[0].dados;
+    if(!backup || !backup.etiquetag || !backup.vimats){ showToast('Registro encontrado, mas não é um backup válido.', 'bad'); return; }
+    const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objUrl;
+    a.download = 'backup-supabase-estoque-central-'+todayISO().slice(0,10)+'.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(objUrl), 1000);
+    showToast('Backup do Supabase baixado como arquivo.', 'good');
+  } catch(e){ showToast('Não foi possível conectar ao Supabase. Verifique sua internet e a Project URL.', 'bad'); }
 }
 function exportarBackup(){
   const backup = { versao: 1, dataExportacao: new Date().toISOString(), etiquetag: DATA.etiquetag, vimats: DATA.vimats };
