@@ -1644,6 +1644,63 @@ function saveEstoque(e){
   closeModal(); saveWS(); renderAll();
   showToast('Salvo com sucesso.', 'good');
 }
+function openPreencherCustoZeradoModal(){
+  const d = cur();
+  const isEtq = ws==='etiquetag';
+  const itensZerados = d.estoque.filter(it=> (isEtq ? it.tipo==='Tag' : true) && (it.custo||0)<=0 && (it.preco||0)>0 && (it.quantidade||0)>0);
+  const gruposEmp = {};
+  itensZerados.forEach(it=>{
+    const emp = empresaObj(it.empresaId);
+    const nome = emp?emp.nome:'Sem empresa';
+    gruposEmp[nome] = (gruposEmp[nome]||0)+1;
+  });
+  openModal(`
+    <div class="modal-head"><h3>Preencher custo zerado</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="aplicarPreencherCustoZerado(event)">
+      <div class="modal-body">
+        <p class="hint" style="margin-top:0;">Encontrados <strong>${itensZerados.length}</strong> produto(s) pronto(s) com preço de venda definido mas custo em R$ 0,00 — geralmente produzidos antes do custo da matéria-prima estar cadastrado corretamente.</p>
+        ${Object.keys(gruposEmp).length ? `<p class="hint" style="margin-top:0;">${Object.entries(gruposEmp).map(([n,c])=>esc(n)+' ('+c+')').join(', ')}</p>` : ''}
+        ${itensZerados.length ? `
+        <div class="field"><label>Como definir o custo</label>
+          <div class="radio-row" style="flex-direction:column;align-items:flex-start;gap:8px;">
+            <label><input type="radio" name="f_custozeradomodo" value="percentual" checked> Percentual do preço de venda (ex.: custo = 40% do preço)</label>
+            <label><input type="radio" name="f_custozeradomodo" value="fixo"> Valor fixo por unidade (R$), igual para todos</label>
+          </div>
+        </div>
+        <div class="field" id="campoCustoZeradoValor"><label>Percentual do preço de venda</label><input required type="number" step="0.1" min="0.1" max="100" id="f_custozeradovalor" placeholder="Ex.: 40"></div>
+        ` : ''}
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>${itensZerados.length?`<button type="submit" class="btn btn-accent">${iconCheck()} Aplicar</button>`:''}</div>
+    </form>`);
+  const radios = document.getElementsByName('f_custozeradomodo');
+  radios.forEach(r=>r.addEventListener('change', ()=>{
+    const modo = document.querySelector('input[name="f_custozeradomodo"]:checked').value;
+    const label = document.querySelector('#campoCustoZeradoValor label');
+    const input = document.getElementById('f_custozeradovalor');
+    if(modo==='fixo'){ label.textContent = 'Valor do custo por unidade (R$)'; input.removeAttribute('max'); input.placeholder = 'Ex.: 0,05'; }
+    else { label.textContent = 'Percentual do preço de venda'; input.setAttribute('max','100'); input.placeholder = 'Ex.: 40'; }
+  }));
+}
+function aplicarPreencherCustoZerado(e){
+  e.preventDefault();
+  const d = cur();
+  const isEtq = ws==='etiquetag';
+  const itensZerados = d.estoque.filter(it=> (isEtq ? it.tipo==='Tag' : true) && (it.custo||0)<=0 && (it.preco||0)>0 && (it.quantidade||0)>0);
+  const modo = document.querySelector('input[name="f_custozeradomodo"]:checked').value;
+  const valor = parseFloat(document.getElementById('f_custozeradovalor').value);
+  if(isNaN(valor) || valor<=0){ showToast('Informe um valor válido.', 'bad'); return; }
+  if(!confirm('Definir custo para '+itensZerados.length+' produto(s) '+(modo==='fixo'?'com valor fixo de '+fmtMoney(valor)+' por unidade':'como '+valor+'% do preço de venda de cada um')+'?')) return;
+  const dataHoje = todayISO();
+  itensZerados.forEach(it=>{
+    if(!it.historicoPrecos) it.historicoPrecos = [];
+    const custoAntigo = it.custo;
+    it.custo = modo==='fixo' ? valor : Math.round((it.preco*(valor/100))*1000)/1000;
+    it.historicoPrecos.push({ data: dataHoje, custo: custoAntigo, preco: it.preco });
+    if(it.historicoPrecos.length>30) it.historicoPrecos = it.historicoPrecos.slice(-30);
+  });
+  closeModal(); saveWS(); renderAll();
+  showToast('Custo preenchido em '+itensZerados.length+' produto(s).', 'good');
+}
 function openReajusteLoteModal(){
   const d = cur();
   const isEtq = ws==='etiquetag';
@@ -2104,7 +2161,7 @@ function renderTamanhos(){
     : `<div class="empty" style="padding:24px;"><p>Nenhum responsável cadastrado ainda.</p></div>`);
 
   html += collapsiblePanel('cad-materiais', 'Materiais cadastrados', 'Todos os itens do estoque, com edição rápida e o preço usado em pedidos/vendas.',
-    `<div style="display:flex;gap:8px;"><button class="btn btn-ghost btn-sm" onclick="openReajusteLoteModal()">${iconAdjust()} Reajustar preços em lote</button><button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button></div>`,
+    `<div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-ghost btn-sm" onclick="openPreencherCustoZeradoModal()">${iconAdjust()} Preencher custo zerado</button><button class="btn btn-ghost btn-sm" onclick="openReajusteLoteModal()">${iconAdjust()} Reajustar preços em lote</button><button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button></div>`,
     d.estoque.length ? `<table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Estoque</th><th>Preço</th><th></th></tr></thead>
     <tbody>${[...d.estoque].sort((a,b)=>a.nome.localeCompare(b.nome)).map(it=>{
       const tipoTxt = isEtq ? (it.tipo==='Ribbon'?'Ribbon':it.tipo==='TagMP'?'Matéria-prima':'Produto pronto') : (it.categoria||'Item');
@@ -3779,8 +3836,16 @@ async function getGithubConfig(){
 async function setGithubConfig(cfg){
   try{ await appStorage.set('github-sync-config', JSON.stringify(cfg), false); } catch(e){}
 }
+async function getSupabaseConfig(){
+  try{ const r = await appStorage.get('supabase-sync-config', false); return (r && r.value) ? JSON.parse(r.value) : {url:'', anonKey:'', registroId:'estoque-central'}; }
+  catch(e){ return {url:'', anonKey:'', registroId:'estoque-central'}; }
+}
+async function setSupabaseConfig(cfg){
+  try{ await appStorage.set('supabase-sync-config', JSON.stringify(cfg), false); } catch(e){}
+}
 async function openBackupModal(){
   const cfg = await getGithubConfig();
+  const sbCfg = await getSupabaseConfig();
   const tamanhoBytes = new Blob([JSON.stringify(DATA.etiquetag)+JSON.stringify(DATA.vimats)]).size;
   const tamanhoKb = (tamanhoBytes/1024).toFixed(0);
   const limiteAviso = tamanhoBytes > 3*1024*1024;
@@ -3794,7 +3859,7 @@ async function openBackupModal(){
         <p class="hint" style="margin-top:0;"><strong>Restaurar um backup</strong> — isso substitui TODOS os dados atuais (Etiquetag e Vimats) pelos do arquivo escolhido. Use com cuidado.</p>
         <input type="file" accept="application/json,.json" id="f_backupfile" onchange="importarBackupFile(this)">
       </div>
-      <div style="border-top:1px solid var(--line);padding-top:16px;">
+      <div style="border-top:1px solid var(--line);padding-top:16px;margin-bottom:16px;">
         <h4 style="margin:0 0 6px;font-family:'Space Grotesk';">Sincronizar entre celulares via GitHub</h4>
         <p class="hint" style="margin-top:0;">Use um <strong>repositório privado</strong> só pra isso (não o mesmo que hospeda o site). No celular A, toque "Enviar"; no celular B, toque "Puxar" pra trazer os dados mais recentes. Não é automático — é manual, um clique de cada vez, então sempre envie antes de trocar de aparelho.</p>
         ${(cfg.ultimoEnvio||cfg.ultimoPuxar) ? `<p class="hint" style="margin-top:0;">${cfg.ultimoEnvio?'Último envio: <strong>'+fmtDateTime(cfg.ultimoEnvio)+'</strong>. ':''}${cfg.ultimoPuxar?'Última vez que puxou: <strong>'+fmtDateTime(cfg.ultimoPuxar)+'</strong>.':''}</p>` : ''}
@@ -3807,9 +3872,79 @@ async function openBackupModal(){
         </div>
         <p class="hint">O token fica salvo só neste navegador. Crie um token com permissão apenas de "Contents" no repositório escolhido (fine-grained token), pra limitar o acesso.</p>
       </div>
+      <div style="border-top:1px solid var(--line);padding-top:16px;">
+        <h4 style="margin:0 0 6px;font-family:'Space Grotesk';">Sincronizar entre celulares via Supabase</h4>
+        <p class="hint" style="margin-top:0;">No celular A, toque "Enviar"; no celular B, toque "Puxar" pra trazer os dados mais recentes. Não é automático — é manual, um clique de cada vez, então sempre envie antes de trocar de aparelho.</p>
+        ${(sbCfg.ultimoEnvio||sbCfg.ultimoPuxar) ? `<p class="hint" style="margin-top:0;">${sbCfg.ultimoEnvio?'Último envio: <strong>'+fmtDateTime(sbCfg.ultimoEnvio)+'</strong>. ':''}${sbCfg.ultimoPuxar?'Última vez que puxou: <strong>'+fmtDateTime(sbCfg.ultimoPuxar)+'</strong>.':''}</p>` : ''}
+        <div class="field"><label>Project URL</label><input id="f_sburl" value="${esc(sbCfg.url)}" placeholder="https://xxxxx.supabase.co"></div>
+        <div class="field"><label>Anon public key</label><input type="password" id="f_sbkey" value="${esc(sbCfg.anonKey)}" placeholder="eyJhbGci..."></div>
+        <div class="field"><label>ID do registro</label><input id="f_sbid" value="${esc(sbCfg.registroId||'estoque-central')}" placeholder="estoque-central">
+          <p class="hint">Só precisa mudar isso se você tiver mais de um "grupo" de celulares sincronizando dados diferentes na mesma tabela.</p></div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button type="button" class="btn btn-accent" style="flex:1;" onclick="supabaseEnviarBackup()">${iconCheck()} Enviar para o Supabase</button>
+          <button type="button" class="btn btn-ghost" style="flex:1;" onclick="supabasePuxarBackup()">${iconAdjust()} Puxar do Supabase</button>
+        </div>
+        <p class="hint">A chave fica salva só neste navegador. Use a chave "anon public", nunca a "service_role".</p>
+      </div>
     </div>
     <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
   `);
+}
+async function supabaseEnviarBackup(){
+  const url = document.getElementById('f_sburl').value.trim().replace(/\/$/,'');
+  const anonKey = document.getElementById('f_sbkey').value.trim();
+  const registroId = document.getElementById('f_sbid').value.trim() || 'estoque-central';
+  if(!url || !anonKey){ showToast('Preencha a Project URL e a anon key.', 'bad'); return; }
+  await setSupabaseConfig({url, anonKey, registroId});
+  const backup = { versao: 1, dataExportacao: new Date().toISOString(), etiquetag: DATA.etiquetag, vimats: DATA.vimats };
+  showToast('Enviando para o Supabase...', 'good');
+  try{
+    const resp = await fetch(url+'/rest/v1/estoque_dados', {
+      method: 'POST',
+      headers: {
+        'apikey': anonKey,
+        'Authorization': 'Bearer '+anonKey,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify({ id: registroId, dados: backup, atualizado_em: new Date().toISOString() })
+    });
+    if(resp.ok){
+      await setSupabaseConfig({url, anonKey, registroId, ultimoEnvio: new Date().toISOString(), ultimoPuxar: (await getSupabaseConfig()).ultimoPuxar||''});
+      showToast('Backup enviado para o Supabase com sucesso!', 'good');
+      openBackupModal();
+    } else {
+      const err = await resp.text().catch(()=>'');
+      showToast('Erro ao enviar (status '+resp.status+'). Verifique se a tabela foi criada.', 'bad');
+    }
+  } catch(e){ showToast('Não foi possível conectar ao Supabase. Verifique sua internet e a Project URL.', 'bad'); }
+}
+async function supabasePuxarBackup(){
+  const url = document.getElementById('f_sburl').value.trim().replace(/\/$/,'');
+  const anonKey = document.getElementById('f_sbkey').value.trim();
+  const registroId = document.getElementById('f_sbid').value.trim() || 'estoque-central';
+  if(!url || !anonKey){ showToast('Preencha a Project URL e a anon key.', 'bad'); return; }
+  await setSupabaseConfig({url, anonKey, registroId});
+  showToast('Buscando backup no Supabase...', 'good');
+  try{
+    const resp = await fetch(url+'/rest/v1/estoque_dados?id=eq.'+encodeURIComponent(registroId)+'&select=dados', {
+      headers: { 'apikey': anonKey, 'Authorization': 'Bearer '+anonKey }
+    });
+    if(!resp.ok){ showToast('Erro ao buscar (status '+resp.status+').', 'bad'); return; }
+    const rows = await resp.json();
+    if(!rows.length){ showToast('Nenhum backup encontrado com esse ID ainda.', 'bad'); return; }
+    const parsed = rows[0].dados;
+    if(!parsed || !parsed.etiquetag || !parsed.vimats){ showToast('Registro encontrado, mas não é um backup válido.', 'bad'); return; }
+    if(!confirm('Isso vai SUBSTITUIR todos os dados atuais (Etiquetag e Vimats) pelos que estão no Supabase. Confirma?')) return;
+    DATA.etiquetag = migrateIfNeeded('etiquetag', parsed.etiquetag);
+    DATA.vimats = migrateIfNeeded('vimats', parsed.vimats);
+    await appStorage.set(WS_META.etiquetag.storageKey, JSON.stringify(DATA.etiquetag), false);
+    await appStorage.set(WS_META.vimats.storageKey, JSON.stringify(DATA.vimats), false);
+    await setSupabaseConfig({url, anonKey, registroId, ultimoPuxar: new Date().toISOString(), ultimoEnvio: (await getSupabaseConfig()).ultimoEnvio||''});
+    closeModal();
+    showToast('Dados atualizados a partir do Supabase!', 'good');
+    renderAll();
+  } catch(e){ showToast('Não foi possível conectar ao Supabase. Verifique sua internet e a Project URL.', 'bad'); }
 }
 async function githubEnviarBackup(){
   const token = document.getElementById('f_ghtoken').value.trim();
