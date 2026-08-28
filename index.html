@@ -3838,9 +3838,10 @@ async function getGithubConfig(){
 async function setGithubConfig(cfg){
   try{ await appStorage.set('github-sync-config', JSON.stringify(cfg), false); } catch(e){}
 }
+const SUPABASE_DEFAULT_CONFIG = {url:'https://zoihkygvezpilmrznwlj.supabase.co', anonKey:'sb_publishable_73G8veisjCL2_OrOKd5CzQ_zeS7639Z', registroId:'estoque-central', autoSync:true};
 async function getSupabaseConfig(){
-  try{ const r = await appStorage.get('supabase-sync-config', false); return (r && r.value) ? JSON.parse(r.value) : {url:'', anonKey:'', registroId:'estoque-central', autoSync:true}; }
-  catch(e){ return {url:'', anonKey:'', registroId:'estoque-central', autoSync:true}; }
+  try{ const r = await appStorage.get('supabase-sync-config', false); return (r && r.value) ? JSON.parse(r.value) : {...SUPABASE_DEFAULT_CONFIG}; }
+  catch(e){ return {...SUPABASE_DEFAULT_CONFIG}; }
 }
 async function setSupabaseConfig(cfg){
   try{ await appStorage.set('supabase-sync-config', JSON.stringify(cfg), false); } catch(e){}
