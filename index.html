@@ -284,9 +284,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
         <span id="usuarioAtualLabel">Selecionar pessoa</span>
       </button>
-      <button class="nav-item" onclick="openBackupModal()">
+      <button class="nav-item" onclick="openBackupModal()" style="position:relative;">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>
         Backup
+        <span id="syncIndicator" title="" style="width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.6;"></span>
       </button>
       <button class="nav-item" onclick="openConfigModal()">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -483,6 +484,7 @@ async function loadAll(){
 async function saveWS(){
   try{ await appStorage.set(WS_META[ws].storageKey, JSON.stringify(DATA[ws]), false); }
   catch(e){ showToast('Não foi possível salvar os dados agora.', 'bad'); }
+  agendarEnvioAutomaticoSupabase();
 }
 
 /* ============================ HELPERS ============================ */
@@ -3837,11 +3839,86 @@ async function setGithubConfig(cfg){
   try{ await appStorage.set('github-sync-config', JSON.stringify(cfg), false); } catch(e){}
 }
 async function getSupabaseConfig(){
-  try{ const r = await appStorage.get('supabase-sync-config', false); return (r && r.value) ? JSON.parse(r.value) : {url:'', anonKey:'', registroId:'estoque-central'}; }
-  catch(e){ return {url:'', anonKey:'', registroId:'estoque-central'}; }
+  try{ const r = await appStorage.get('supabase-sync-config', false); return (r && r.value) ? JSON.parse(r.value) : {url:'', anonKey:'', registroId:'estoque-central', autoSync:true}; }
+  catch(e){ return {url:'', anonKey:'', registroId:'estoque-central', autoSync:true}; }
 }
 async function setSupabaseConfig(cfg){
   try{ await appStorage.set('supabase-sync-config', JSON.stringify(cfg), false); } catch(e){}
+}
+
+/* ===== Sincronização automática via Supabase ===== */
+let supabaseUltimoTimestampConhecido = null;
+let supabasePushDebounceTimer = null;
+let supabasePollTimer = null;
+let supabaseSincronizando = false;
+function agendarEnvioAutomaticoSupabase(){
+  if(supabasePushDebounceTimer) clearTimeout(supabasePushDebounceTimer);
+  supabasePushDebounceTimer = setTimeout(()=>{ supabaseEnviarAutomatico(); }, 2500);
+}
+async function supabaseEnviarAutomatico(){
+  const cfg = await getSupabaseConfig();
+  if(!cfg.url || !cfg.anonKey || cfg.autoSync===false) return;
+  if(supabaseSincronizando) return;
+  supabaseSincronizando = true;
+  const backup = { versao: 1, dataExportacao: new Date().toISOString(), etiquetag: DATA.etiquetag, vimats: DATA.vimats };
+  const agora = new Date().toISOString();
+  try{
+    const resp = await fetch(cfg.url.replace(/\/$/,'')+'/rest/v1/estoque_dados', {
+      method: 'POST',
+      headers: { 'apikey': cfg.anonKey, 'Authorization': 'Bearer '+cfg.anonKey, 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify({ id: cfg.registroId||'estoque-central', dados: backup, atualizado_em: agora })
+    });
+    if(resp.ok){ supabaseUltimoTimestampConhecido = agora; atualizarIndicadorSync('ok'); }
+    else atualizarIndicadorSync('erro');
+  } catch(e){ atualizarIndicadorSync('erro'); }
+  supabaseSincronizando = false;
+}
+async function supabaseVerificarAtualizacoes(silencioso){
+  const cfg = await getSupabaseConfig();
+  if(!cfg.url || !cfg.anonKey || cfg.autoSync===false) return;
+  if(supabaseSincronizando) return;
+  try{
+    const resp = await fetch(cfg.url.replace(/\/$/,'')+'/rest/v1/estoque_dados?id=eq.'+encodeURIComponent(cfg.registroId||'estoque-central')+'&select=dados,atualizado_em', {
+      headers: { 'apikey': cfg.anonKey, 'Authorization': 'Bearer '+cfg.anonKey }
+    });
+    if(!resp.ok) return;
+    const rows = await resp.json();
+    if(!rows.length) return;
+    const remoto = rows[0];
+    if(supabaseUltimoTimestampConhecido && new Date(remoto.atualizado_em) <= new Date(supabaseUltimoTimestampConhecido)) return;
+    const parsed = remoto.dados;
+    if(!parsed || !parsed.etiquetag || !parsed.vimats) return;
+    supabaseSincronizando = true;
+    DATA.etiquetag = migrateIfNeeded('etiquetag', parsed.etiquetag);
+    DATA.vimats = migrateIfNeeded('vimats', parsed.vimats);
+    await appStorage.set(WS_META.etiquetag.storageKey, JSON.stringify(DATA.etiquetag), false);
+    await appStorage.set(WS_META.vimats.storageKey, JSON.stringify(DATA.vimats), false);
+    supabaseUltimoTimestampConhecido = remoto.atualizado_em;
+    supabaseSincronizando = false;
+    renderAll();
+    atualizarIndicadorSync('ok');
+    if(!silencioso) showToast('Dados atualizados automaticamente (outro dispositivo).', 'good');
+  } catch(e){ supabaseSincronizando = false; atualizarIndicadorSync('erro'); }
+}
+function atualizarIndicadorSync(status){
+  const el = document.getElementById('syncIndicator');
+  if(!el) return;
+  if(status==='ok'){ el.title = 'Sincronizado às '+new Date().toLocaleTimeString('pt-BR'); el.style.color = '#3AAE7A'; }
+  else if(status==='erro'){ el.title = 'Falha na última sincronização'; el.style.color = '#C9A227'; }
+}
+async function iniciarAutoSyncSupabase(){
+  const cfg = await getSupabaseConfig();
+  if(supabasePollTimer){ clearInterval(supabasePollTimer); supabasePollTimer = null; }
+  if(!cfg.url || !cfg.anonKey || cfg.autoSync===false) return;
+  await supabaseVerificarAtualizacoes(true);
+  supabasePollTimer = setInterval(()=>supabaseVerificarAtualizacoes(false), 20000);
+}
+async function reiniciarAutoSyncAoMudarToggle(){
+  const cfg = await getSupabaseConfig();
+  const autoSync = document.getElementById('f_sbautosync').checked;
+  await setSupabaseConfig({...cfg, url: document.getElementById('f_sburl').value.trim(), anonKey: document.getElementById('f_sbkey').value.trim(), registroId: document.getElementById('f_sbid').value.trim()||'estoque-central', autoSync});
+  iniciarAutoSyncSupabase();
+  showToast(autoSync ? 'Sincronização automática ativada.' : 'Sincronização automática desativada.', 'good');
 }
 async function openBackupModal(){
   const cfg = await getGithubConfig();
@@ -3874,7 +3951,8 @@ async function openBackupModal(){
       </div>
       <div style="border-top:1px solid var(--line);padding-top:16px;">
         <h4 style="margin:0 0 6px;font-family:'Space Grotesk';">Sincronizar entre celulares via Supabase</h4>
-        <p class="hint" style="margin-top:0;">No celular A, toque "Enviar"; no celular B, toque "Puxar" pra trazer os dados mais recentes. Não é automático — é manual, um clique de cada vez, então sempre envie antes de trocar de aparelho.</p>
+        <div class="field"><label><input type="checkbox" id="f_sbautosync" ${sbCfg.autoSync!==false?'checked':''} style="width:auto;margin-right:6px;" onchange="reiniciarAutoSyncAoMudarToggle()"> Sincronização automática</label>
+        <p class="hint" style="margin-top:2px;">Ligado: sempre que você mexer em algo, o app envia sozinho pro Supabase (alguns segundos depois); e a cada ~20 segundos verifica se outro aparelho enviou algo novo, trazendo automaticamente. Desligado: só sincroniza quando você tocar "Enviar"/"Puxar".</p></div>
         ${(sbCfg.ultimoEnvio||sbCfg.ultimoPuxar) ? `<p class="hint" style="margin-top:0;">${sbCfg.ultimoEnvio?'Último envio: <strong>'+fmtDateTime(sbCfg.ultimoEnvio)+'</strong>. ':''}${sbCfg.ultimoPuxar?'Última vez que puxou: <strong>'+fmtDateTime(sbCfg.ultimoPuxar)+'</strong>.':''}</p>` : ''}
         <div class="field"><label>Project URL</label><input id="f_sburl" value="${esc(sbCfg.url)}" placeholder="https://xxxxx.supabase.co"></div>
         <div class="field"><label>Anon public key</label><input type="password" id="f_sbkey" value="${esc(sbCfg.anonKey)}" placeholder="eyJhbGci..."></div>
@@ -3884,7 +3962,7 @@ async function openBackupModal(){
           <button type="button" class="btn btn-accent" style="flex:1;" onclick="supabaseEnviarBackup()">${iconCheck()} Enviar para o Supabase</button>
           <button type="button" class="btn btn-ghost" style="flex:1;" onclick="supabasePuxarBackup()">${iconAdjust()} Puxar do Supabase</button>
         </div>
-        <p class="hint">A chave fica salva só neste navegador. Use a chave "anon public", nunca a "service_role".</p>
+        <p class="hint">A chave fica salva só neste navegador. Use a chave "anon public", nunca a "service_role". Como dois aparelhos podem mexer nos dados quase ao mesmo tempo, quem enviar por último "vence" — não é uma mesclagem inteligente.</p>
       </div>
     </div>
     <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Fechar</button></div>
@@ -3894,11 +3972,13 @@ async function supabaseEnviarBackup(){
   const url = document.getElementById('f_sburl').value.trim().replace(/\/$/,'');
   const anonKey = document.getElementById('f_sbkey').value.trim();
   const registroId = document.getElementById('f_sbid').value.trim() || 'estoque-central';
+  const autoSync = document.getElementById('f_sbautosync') ? document.getElementById('f_sbautosync').checked : true;
   if(!url || !anonKey){ showToast('Preencha a Project URL e a anon key.', 'bad'); return; }
-  await setSupabaseConfig({url, anonKey, registroId});
+  await setSupabaseConfig({url, anonKey, registroId, autoSync});
   const backup = { versao: 1, dataExportacao: new Date().toISOString(), etiquetag: DATA.etiquetag, vimats: DATA.vimats };
   showToast('Enviando para o Supabase...', 'good');
   try{
+    const agora = new Date().toISOString();
     const resp = await fetch(url+'/rest/v1/estoque_dados', {
       method: 'POST',
       headers: {
@@ -3907,11 +3987,13 @@ async function supabaseEnviarBackup(){
         'Content-Type': 'application/json',
         'Prefer': 'resolution=merge-duplicates,return=minimal'
       },
-      body: JSON.stringify({ id: registroId, dados: backup, atualizado_em: new Date().toISOString() })
+      body: JSON.stringify({ id: registroId, dados: backup, atualizado_em: agora })
     });
     if(resp.ok){
-      await setSupabaseConfig({url, anonKey, registroId, ultimoEnvio: new Date().toISOString(), ultimoPuxar: (await getSupabaseConfig()).ultimoPuxar||''});
+      supabaseUltimoTimestampConhecido = agora;
+      await setSupabaseConfig({url, anonKey, registroId, autoSync, ultimoEnvio: agora, ultimoPuxar: (await getSupabaseConfig()).ultimoPuxar||''});
       showToast('Backup enviado para o Supabase com sucesso!', 'good');
+      iniciarAutoSyncSupabase();
       openBackupModal();
     } else {
       const err = await resp.text().catch(()=>'');
@@ -3923,11 +4005,12 @@ async function supabasePuxarBackup(){
   const url = document.getElementById('f_sburl').value.trim().replace(/\/$/,'');
   const anonKey = document.getElementById('f_sbkey').value.trim();
   const registroId = document.getElementById('f_sbid').value.trim() || 'estoque-central';
+  const autoSync = document.getElementById('f_sbautosync') ? document.getElementById('f_sbautosync').checked : true;
   if(!url || !anonKey){ showToast('Preencha a Project URL e a anon key.', 'bad'); return; }
-  await setSupabaseConfig({url, anonKey, registroId});
+  await setSupabaseConfig({url, anonKey, registroId, autoSync});
   showToast('Buscando backup no Supabase...', 'good');
   try{
-    const resp = await fetch(url+'/rest/v1/estoque_dados?id=eq.'+encodeURIComponent(registroId)+'&select=dados', {
+    const resp = await fetch(url+'/rest/v1/estoque_dados?id=eq.'+encodeURIComponent(registroId)+'&select=dados,atualizado_em', {
       headers: { 'apikey': anonKey, 'Authorization': 'Bearer '+anonKey }
     });
     if(!resp.ok){ showToast('Erro ao buscar (status '+resp.status+').', 'bad'); return; }
@@ -3940,10 +4023,12 @@ async function supabasePuxarBackup(){
     DATA.vimats = migrateIfNeeded('vimats', parsed.vimats);
     await appStorage.set(WS_META.etiquetag.storageKey, JSON.stringify(DATA.etiquetag), false);
     await appStorage.set(WS_META.vimats.storageKey, JSON.stringify(DATA.vimats), false);
-    await setSupabaseConfig({url, anonKey, registroId, ultimoPuxar: new Date().toISOString(), ultimoEnvio: (await getSupabaseConfig()).ultimoEnvio||''});
+    supabaseUltimoTimestampConhecido = rows[0].atualizado_em;
+    await setSupabaseConfig({url, anonKey, registroId, autoSync, ultimoPuxar: new Date().toISOString(), ultimoEnvio: (await getSupabaseConfig()).ultimoEnvio||''});
     closeModal();
     showToast('Dados atualizados a partir do Supabase!', 'good');
     renderAll();
+    iniciarAutoSyncSupabase();
   } catch(e){ showToast('Não foi possível conectar ao Supabase. Verifique sua internet e a Project URL.', 'bad'); }
 }
 async function githubEnviarBackup(){
@@ -4499,6 +4584,7 @@ if('serviceWorker' in navigator){
   document.body.className = 'ws-'+ws;
   renderAll();
   if(usuarios.length) abrirSeletorUsuario(false);
+  iniciarAutoSyncSupabase();
 })();
 </script>
 </body>
