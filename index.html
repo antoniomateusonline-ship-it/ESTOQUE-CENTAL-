@@ -694,6 +694,7 @@ function renderAll(){
   else if(section==='estoque'){ setTopbar('Estoque', isEtq ? 'Matéria-prima e produtos prontos, separados' : 'Itens disponíveis para venda',
     (isEtq ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
        ${searchBoxHtml('buscaEstoqueInput', buscaEstoque, 'Buscar por nome ou código...', 'setBuscaEstoque')}
+       <button class="btn btn-ghost" onclick="abrirBuscaCodigoBarrasModal()">${iconBox()} Entrada/Saída por código de barras</button>
        <button class="btn btn-ghost" onclick="printEstoque('materiaprima')">${iconPrint()} Imprimir matéria-prima</button>
        <button class="btn btn-ghost" onclick="printEstoque('prontos')">${iconPrint()} Imprimir produtos prontos</button>
        <button class="btn btn-accent" onclick="openEstoqueForm()">${iconPlus()} Novo item</button></div>`
@@ -1782,6 +1783,42 @@ function deleteEstoqueItem(id){
   showToast('Item excluído.', 'good');
 }
 
+function abrirBuscaCodigoBarrasModal(){
+  openModal(`
+    <div class="modal-head"><h3>Entrada/Saída por código de barras</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Use um leitor de código de barras (ou digite manualmente) e aperte Enter — o produto vinculado a essa referência abre direto para dar entrada ou saída.</p>
+      <div class="field"><label>Código de barras</label><input type="text" id="f_buscacodbarras" placeholder="Escaneie ou digite o código..." autofocus onkeydown="if(event.key==='Enter'){event.preventDefault();buscarPorCodigoBarras();}"></div>
+      <div id="resultadoBuscaCodBarras"></div>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-accent" onclick="buscarPorCodigoBarras()">${iconCheck()} Buscar</button></div>
+  `);
+  setTimeout(()=>{ const el = document.getElementById('f_buscacodbarras'); if(el) el.focus(); }, 50);
+}
+function buscarPorCodigoBarras(){
+  const d = cur();
+  const input = document.getElementById('f_buscacodbarras');
+  const codigo = input.value.trim();
+  const resultadoEl = document.getElementById('resultadoBuscaCodBarras');
+  if(!codigo){ resultadoEl.innerHTML = `<p class="hint" style="color:#B23A3A;">Digite ou escaneie um código de barras.</p>`; return; }
+  const refsEncontradas = allReferenciasList().filter(r=>r.codigoBarras && r.codigoBarras.trim().toLowerCase()===codigo.toLowerCase());
+  if(!refsEncontradas.length){ resultadoEl.innerHTML = `<p class="hint" style="color:#B23A3A;">Nenhuma referência cadastrada com esse código de barras.</p>`; return; }
+  const refIds = refsEncontradas.map(r=>r.id);
+  const itensEncontrados = d.estoque.filter(it=>refIds.includes(it.referenciaId));
+  if(!itensEncontrados.length){
+    resultadoEl.innerHTML = `<p class="hint" style="color:#B23A3A;">Referência "${esc(refsEncontradas[0].codigo)}" encontrada, mas nenhum item de estoque está vinculado a ela ainda.</p>`;
+    return;
+  }
+  if(itensEncontrados.length===1){
+    closeModal();
+    openAjusteModal(itensEncontrados[0].id);
+    return;
+  }
+  resultadoEl.innerHTML = `<p class="hint" style="margin-top:10px;">Mais de um item usa essa referência — escolha qual:</p>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      ${itensEncontrados.map(it=>`<button type="button" class="btn btn-ghost" style="justify-content:flex-start;" onclick="closeModal();openAjusteModal('${it.id}')">${esc(it.codigo)} — ${esc(tagFullLabel(it))} (${fmtQty(it.quantidade)} ${esc(it.unidade)})</button>`).join('')}
+    </div>`;
+}
 function openAjusteModal(id){
   const item = cur().estoque.find(x=>x.id===id);
   const isTagMp = ws==='etiquetag' && item.tipo==='TagMP';
@@ -2032,10 +2069,11 @@ function saveProducao(e, tagMpId){
       if(precoMilheiro>0) pronto.preco = precoMilheiro;
       if(it.composicaoId) pronto.composicaoId = it.composicaoId;
       if(it.recPadraoId) pronto.recPadraoId = it.recPadraoId;
+      if(it.referenciaId) pronto.referenciaId = it.referenciaId;
     } else {
       pronto = { id: uid(), codigo: nextCode('TG','tg'), nome: mp.nome, tipo:'Tag', tipoRibbon:'',
         tamanhoId: mp.tamanhoId, categoriaTag: mp.categoriaTag, numeracaoId: it.numeracaoId||'', empresaId: it.empresaId||'', ribbonId: it.ribbonId||'', fornecedor:'', metrosPorRolo:0,
-        composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'',
+        composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'', referenciaId: it.referenciaId||'',
         quantidade, unidade:'un', estoqueMinimo:0, custo:custoNovoUn, margem:0, preco:precoMilheiro, vendavel:true };
       d.estoque.push(pronto);
     }
@@ -2676,8 +2714,7 @@ function openReferenciasModal(empresaId){
   openModal(`
     <div class="modal-head"><h3>Referências · ${esc(emp.nome)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <div class="modal-body">
-      <p class="hint" style="margin-top:0;">Cadastre quantas referências essa empresa usar. Ao escolher uma referência num pedido/venda, a descrição preenche sozinha.</p>
-      <div class="items-head" style="grid-template-columns:1fr 1fr 30px;"><div>Referência</div><div>Descrição</div><div></div></div>
+      <p class="hint" style="margin-top:0;">Cadastre quantas referências essa empresa usar. Ao escolher uma referência num pedido/venda, a descrição e o código de barras preenchem sozinhos.</p>
       <div id="referenciasBody"></div>
       <button type="button" class="btn btn-ghost btn-sm" onclick="addReferenciaRow()" style="margin-top:8px;">${iconPlus()} Adicionar referência</button>
     </div>
@@ -2689,13 +2726,16 @@ function renderReferenciasBody(){
   const body = document.getElementById('referenciasBody');
   if(!body) return;
   body.innerHTML = tempReferencias.map((r,idx)=>`
-    <div style="display:grid;grid-template-columns:1fr 1fr 30px;gap:8px;align-items:center;margin-bottom:8px;">
-      <input value="${esc(r.codigo)}" placeholder="Ex.: REF-001" oninput="updateReferenciaField(${idx},'codigo',this.value)">
-      <input value="${esc(r.descricao)}" placeholder="Descrição" oninput="updateReferenciaField(${idx},'descricao',this.value)">
-      <button type="button" class="icon-btn" onclick="removeReferenciaRow(${idx})">${iconX()}</button>
+    <div style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px;">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:4px;"><button type="button" class="icon-btn" onclick="removeReferenciaRow(${idx})">${iconX()}</button></div>
+      <div class="field-row">
+        <div class="field"><label>Referência</label><input value="${esc(r.codigo)}" placeholder="Ex.: REF-001" oninput="updateReferenciaField(${idx},'codigo',this.value)"></div>
+        <div class="field"><label>Descrição</label><input value="${esc(r.descricao)}" placeholder="Descrição" oninput="updateReferenciaField(${idx},'descricao',this.value)"></div>
+      </div>
+      <div class="field" style="margin-top:6px;"><label>Código de barras</label><input value="${esc(r.codigoBarras||'')}" placeholder="Ex.: 7891234567890" oninput="updateReferenciaField(${idx},'codigoBarras',this.value)"></div>
     </div>`).join('') || `<p class="hint">Nenhuma referência ainda — clique em "Adicionar referência".</p>`;
 }
-function addReferenciaRow(){ tempReferencias.push({id:uid(), codigo:'',descricao:''}); renderReferenciasBody(); }
+function addReferenciaRow(){ tempReferencias.push({id:uid(), codigo:'',descricao:'',codigoBarras:''}); renderReferenciasBody(); }
 function updateReferenciaField(idx, field, value){ tempReferencias[idx][field] = value; }
 function removeReferenciaRow(idx){ tempReferencias.splice(idx,1); renderReferenciasBody(); }
 function saveReferencias(empresaId){
@@ -2818,11 +2858,12 @@ function referenciaRowHtml(idx, item){
       ${list.map(r=>`<option value="${r.id}" ${item.referenciaId===r.id?'selected':''}>${esc(r.empresaNome)} · ${esc(r.codigo)}</option>`).join('')}
     </select>
     <input type="text" readonly value="${esc(item.descricaoRef||'')}" placeholder="Descrição (automática)">
-  </div>`;
+  </div>
+  ${item.referenciaId && item.codigoBarrasRef ? `<div class="hint" style="margin:-2px 0 6px;">Código de barras: <span class="mono">${esc(item.codigoBarrasRef)}</span></div>` : ''}`;
 }
 function allReferenciasList(){
   const d = cur(); const list = [];
-  (d.empresas||[]).forEach(emp=>{ (emp.referencias||[]).forEach(r=>{ list.push({id:r.id, empresaNome:emp.nome, codigo:r.codigo, descricao:r.descricao}); }); });
+  (d.empresas||[]).forEach(emp=>{ (emp.referencias||[]).forEach(r=>{ list.push({id:r.id, empresaNome:emp.nome, codigo:r.codigo, descricao:r.descricao, codigoBarras:r.codigoBarras||''}); }); });
   return list;
 }
 function updateItemReferencia(idx, refId){
@@ -2830,6 +2871,7 @@ function updateItemReferencia(idx, refId){
   formItens[idx].referenciaId = refId;
   formItens[idx].referenciaCodigo = ref ? ref.codigo : '';
   formItens[idx].descricaoRef = ref ? ref.descricao : '';
+  formItens[idx].codigoBarrasRef = ref ? ref.codigoBarras : '';
   renderItensBody();
 }
 function composicaoAlertaHtml(tamanhoId, empresaId, composicaoId, recPadraoId, idx, hideSelectors){
@@ -3024,7 +3066,7 @@ function updateItem(idx, field, value){
   renderItensBody();
 }
 let pedidoDraftItem = null;
-function novoPedidoDraftItem(){ return {tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',referenciaCodigo:'',descricaoRef:'',composicaoId:'',recPadraoId:'',ribbonId:''}; }
+function novoPedidoDraftItem(){ return {tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',referenciaCodigo:'',descricaoRef:'',codigoBarrasRef:'',composicaoId:'',recPadraoId:'',ribbonId:''}; }
 function updateDraftField(field, value){
   if(field==='quantidade') pedidoDraftItem.quantidade = parseFloat(value)||0;
   else if(field==='precoUnit') pedidoDraftItem.precoUnit = parseFloat(value)||0;
@@ -3069,6 +3111,7 @@ function updateDraftReferencia(refId){
   pedidoDraftItem.referenciaId = refId;
   pedidoDraftItem.referenciaCodigo = ref?ref.codigo:'';
   pedidoDraftItem.descricaoRef = ref?ref.descricao:'';
+  pedidoDraftItem.codigoBarrasRef = ref?ref.codigoBarras:'';
   renderPedidoDraftArea();
 }
 function confirmarItemPedido(){
@@ -3101,7 +3144,8 @@ function renderPedidoDraftArea(){
       <option value="">Nenhuma</option>
       ${referencias.map(r=>`<option value="${r.id}" ${item.referenciaId===r.id?'selected':''}>${esc(r.empresaNome)} · ${esc(r.codigo)}</option>`).join('')}
     </select>
-    <input type="text" readonly value="${esc(item.descricaoRef||'')}" placeholder="Descrição (automática)" style="margin-top:6px;"></div>`;
+    <input type="text" readonly value="${esc(item.descricaoRef||'')}" placeholder="Descrição (automática)" style="margin-top:6px;">
+    ${item.referenciaId && item.codigoBarrasRef ? `<div class="hint" style="margin-top:4px;">Código de barras: <span class="mono">${esc(item.codigoBarrasRef)}</span></div>` : ''}</div>`;
   }
   html += `<div class="field"><label>Produto</label><select onchange="updateDraftTamanho(this.value)">
     <option value="">Selecione o produto</option>
@@ -3232,7 +3276,7 @@ function savePedido(e){
       if(it.descricaoRef) nome += ' — '+it.descricaoRef;
       const produtoExistente = d.estoque.find(p=>p.tipo==='Tag' && p.tamanhoId===it.tamanhoId && p.numeracaoId===(it.numeracaoId||'') && p.empresaId===(empresaFinal?empresaFinal.id:''));
       return { produtoId: produtoExistente?produtoExistente.id:'', tamanhoId: it.tamanhoId, numeracaoId: it.numeracaoId, empresaId: empresaFinal?empresaFinal.id:'',
-        referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'', ribbonId: it.ribbonId||'',
+        referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', codigoBarras: it.codigoBarrasRef||'', composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'', ribbonId: it.ribbonId||'',
         nome, unidade:'un', quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit };
     });
   } else {
@@ -3242,7 +3286,7 @@ function savePedido(e){
       const prod = d.estoque.find(p=>p.id===it.produtoId);
       let nome = tagFullLabel(prod);
       if(it.descricaoRef) nome += ' — '+it.descricaoRef;
-      return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
+      return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', codigoBarras: it.codigoBarrasRef||'', composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
     });
   }
   const total = itens.reduce((s,i)=>s+i.subtotal,0);
@@ -3706,7 +3750,7 @@ function saveVenda(e){
     const prod = d.estoque.find(p=>p.id===it.produtoId);
     let nome = tagFullLabel(prod);
     if(it.descricaoRef) nome += ' — '+it.descricaoRef;
-    return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
+    return { produtoId: it.produtoId, referencia: it.referenciaCodigo||'', descricaoRef: it.descricaoRef||'', codigoBarras: it.codigoBarrasRef||'', composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'', nome, unidade: saleUnitLabel(prod), quantidade: it.quantidade, precoUnit: it.precoUnit, subtotal: it.quantidade*it.precoUnit, tamanhoId: prod.tamanhoId||'', empresaId: prod.empresaId||'' };
   });
   const subtotal = itens.reduce((s,i)=>s+i.subtotal,0);
   const desconto = parseFloat(document.getElementById('f_desconto').value)||0;
@@ -4195,15 +4239,17 @@ function composicaoLineText(i){
 }
 function itensTableHtml(itens){
   const temRef = itens.some(i=>i.referencia||i.descricaoRef);
-  const table = `<table><thead><tr><th>Item</th>${temRef?'<th>Referência</th><th>Descrição</th>':''}<th>Qtd</th><th>Preço unit.</th><th>Subtotal</th></tr></thead>
+  const temCodBarras = itens.some(i=>i.codigoBarras);
+  const table = `<table><thead><tr><th>Item</th>${temRef?'<th>Referência</th><th>Descrição</th>':''}${temCodBarras?'<th>Código de barras</th>':''}<th>Qtd</th><th>Preço unit.</th><th>Subtotal</th></tr></thead>
   <tbody>${itens.map(i=>{ const comp = composicaoLineText(i);
     const compHtml = comp ? `<br><span style="font-size:9.5px;color:#555;">${esc(comp.texto)}</span>${comp.recomendacoes.length?`<div style="display:flex;gap:4px;margin-top:3px;color:#333;">${comp.recomendacoes.map(r=>iconCuidado(r,13)).join('')}</div>`:''}` : '';
-    return `<tr><td>${esc(i.nome)}${compHtml}</td>${temRef?`<td>${esc(i.referencia||'—')}</td><td>${esc(i.descricaoRef||'—')}</td>`:''}<td>${fmtQty(i.quantidade)} ${esc(i.unidade||'')}</td><td>${fmtMoney(i.precoUnit)}</td><td>${fmtMoney(i.subtotal)}</td></tr>`;
+    return `<tr><td>${esc(i.nome)}${compHtml}</td>${temRef?`<td>${esc(i.referencia||'—')}</td><td>${esc(i.descricaoRef||'—')}</td>`:''}${temCodBarras?`<td class="mono">${esc(i.codigoBarras||'—')}</td>`:''}<td>${fmtQty(i.quantidade)} ${esc(i.unidade||'')}</td><td>${fmtMoney(i.precoUnit)}</td><td>${fmtMoney(i.subtotal)}</td></tr>`;
   }).join('')}</tbody></table>`;
   const lines = `<div class="doc-lines">${itens.map(i=>{ const comp = composicaoLineText(i);
     return `
     <div class="line"><span>${esc(i.nome)}</span><span></span></div>
     ${(i.referencia||i.descricaoRef)?`<div class="line"><span>Ref: ${esc(i.referencia||'—')} — ${esc(i.descricaoRef||'')}</span><span></span></div>`:''}
+    ${i.codigoBarras?`<div class="line"><span>Cód. barras: ${esc(i.codigoBarras)}</span><span></span></div>`:''}
     ${comp?`<div class="line"><span>${esc(comp.texto)}</span><span></span></div>`:''}
     ${comp&&comp.recomendacoes.length?`<div class="line" style="align-items:center;"><span style="display:flex;gap:4px;">${comp.recomendacoes.map(r=>iconCuidado(r,14)).join('')}</span><span></span></div>`:''}
     <div class="line"><span>${fmtQty(i.quantidade)} ${esc(i.unidade||'')} x ${fmtMoney(i.precoUnit)}</span><span>${fmtMoney(i.subtotal)}</span></div>`;
