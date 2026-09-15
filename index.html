@@ -528,7 +528,7 @@ function badgeHtml(kind, text){ return `<span class="badge badge-${kind}">${esc(
 
 /* ============================ PAINÉIS MINIMIZÁVEIS ============================ */
 let panelColapsado = {};
-const painelExpandidoPorPadrao = new Set(['pedidos-pendentes']);
+const painelExpandidoPorPadrao = new Set(['pedidos-pendentes','dash-pedidos-producao']);
 function isColapsado(key){
   const k = ws+'::'+key;
   if(panelColapsado[k]!==undefined) return panelColapsado[k];
@@ -784,6 +784,8 @@ function renderDashboard(){
       }).join('') : `<div class="empty" style="padding:24px;"><p>Nenhuma matéria-prima cadastrada.</p></div>`}
     </div>
 
+    ${renderPedidosEmProducao()}
+
     ${collapsiblePanel('dash-producoes', 'Produções Recentes', '', '',
       producoesRecentes.length ? producoesRecentes.map(p=>{
         const tam = tamanhoObj(p.tamanhoId); const num = numeracaoObj(p.numeracaoId); const emp = empresaObj(p.empresaId);
@@ -804,6 +806,33 @@ function renderDashboard(){
   </div>
   ${alertHtml(baixo)}
   `;
+}
+function renderPedidosEmProducao(){
+  const d = cur();
+  const pedidosComProducao = {};
+  d.producoes.forEach(p=>{ if(p.pedidoId) (pedidosComProducao[p.pedidoId] = pedidosComProducao[p.pedidoId]||[]).push(p); });
+  const idsComProducao = Object.keys(pedidosComProducao);
+  if(!idsComProducao.length) return '';
+
+  const emProducao = d.pedidos.filter(p=>p.status==='Pendente' && pedidosComProducao[p.id]);
+  const transformadosEmVenda = d.pedidos.filter(p=>p.status==='Concluído' && pedidosComProducao[p.id]);
+
+  const linhaPedido = (p)=>{
+    const qtdProduzida = pedidosComProducao[p.id].reduce((s,x)=>s+x.quantidade,0);
+    const qtdPedida = p.itens.reduce((s,it)=>s+it.quantidade,0);
+    return `<div class="list-row"><div><div class="l-name">${esc(p.numero)} — ${esc(p.cliente)}</div><div class="l-sub">${fmtDate(p.data)} · ${qtdProduzida>=qtdPedida?'Produção completa':'Produzido: '+fmtQty(qtdProduzida)+' de '+fmtQty(qtdPedida)+' un.'}</div></div>
+      <div class="l-val"><button class="btn btn-ghost btn-sm" onclick="goTo('pedidos')">Ver pedido</button></div></div>`;
+  };
+
+  let html = collapsiblePanel('dash-pedidos-producao', 'Pedidos em Produção', emProducao.length+' pedido(s) sendo produzido(s) agora', '',
+    emProducao.length ? emProducao.map(linhaPedido).join('') : `<div class="empty" style="padding:20px;"><p>Nenhum pedido em produção no momento.</p></div>`);
+
+  if(transformadosEmVenda.length){
+    html += collapsiblePanel('dash-pedidos-transformados', 'Pedidos já transformados em venda', transformadosEmVenda.length+' pedido(s)', '',
+      transformadosEmVenda.map(p=>`<div class="list-row"><div><div class="l-name">${esc(p.numero)} — ${esc(p.cliente)} <span class="cat-tag">Transformado em venda</span></div><div class="l-sub">${fmtDate(p.data)}</div></div>
+        <div class="l-val"><button class="btn btn-ghost btn-sm" onclick="goTo('vendas')">Ver venda</button></div></div>`).join(''));
+  }
+  return html;
 }
 function financeHtml(valorInvestidoTotal, valorMP, valorProdutos, totalVendas, nVendas, lucroObtido){
   return `<div class="finance-panel">
@@ -2204,6 +2233,7 @@ function openProducaoModal(tagMpId){
   const tam = tamanhoObj(mp.tamanhoId);
   const numeracoes = d.numeracoes||[];
   const pedidosRelacionados = d.pedidos.filter(p=>p.status==='Pendente' && p.itens.some(it=>it.tamanhoId===mp.tamanhoId));
+  producaoOrigemPedidoId = '';
   producaoItens = [{empresaId:'', numeracaoId: numeracoes[0]?numeracoes[0].id:'', referenciaId:'', ribbonId:'', quantidade:'', precoMilheiro: tam&&!tam.composicao&&tam.precoMilheiro?tam.precoMilheiro:'', composicaoId:'', recPadraoId:''}];
   openModal(`
     <div class="modal-head"><h3>Produzir · ${esc(mp.nome)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
@@ -2213,7 +2243,7 @@ function openProducaoModal(tagMpId){
         ${pedidosRelacionados.length ? `<div class="field"><label>Carregar itens de um pedido pendente (opcional)</label><select onchange="carregarItensDoPedido(this.value,'${tagMpId}')">
           <option value="">Nenhum — produção avulsa</option>
           ${pedidosRelacionados.map(p=>`<option value="${p.id}">${esc(p.numero)} — ${esc(p.cliente)}</option>`).join('')}
-        </select><p class="hint">Cria um item de produção para cada tamanho pedido, já preenchido.</p></div>` : ''}
+        </select><p class="hint">Cria um item de produção para cada tamanho pedido, já preenchido, e vincula essa produção ao pedido.</p></div>` : ''}
         <div id="producaoItensBody"></div>
         <button type="button" class="btn btn-ghost btn-sm" onclick="addProducaoItem('${tagMpId}')" style="margin-bottom:14px;">${iconPlus()} Adicionar item</button>
         <div class="field"><label>Responsável (quem produziu)</label><input id="f_responsavel" value="${usuarioAtual?esc(usuarioAtual.nome):''}" placeholder="Ex.: Mateus"></div>
@@ -2315,7 +2345,9 @@ function renderProducaoItensBody(tagMpId){
   const totalEl = document.getElementById('producaoTotalQtd');
   if(totalEl) totalEl.textContent = fmtQty(total)+' un.';
 }
+let producaoOrigemPedidoId = '';
 function carregarItensDoPedido(pedidoId, tagMpId){
+  producaoOrigemPedidoId = pedidoId || '';
   if(!pedidoId) return;
   const d = cur();
   const p = d.pedidos.find(x=>x.id===pedidoId);
@@ -2381,7 +2413,7 @@ function saveProducao(e, tagMpId){
     }
     const refInfo = it.referenciaId ? allReferenciasList().find(r=>r.id===it.referenciaId) : null;
     d.producoes.push({ id: uid(), data: todayISO(), responsavel, tamanhoId: mp.tamanhoId, numeracaoId: it.numeracaoId||'', empresaId: it.empresaId||'',
-      quantidade, metrosRibbon, ribbonId: it.ribbonId||'', tagProntoId: pronto.id, referencia: refInfo?refInfo.codigo:'', descricaoRef: refInfo?refInfo.descricao:'', pedidoId:'',
+      quantidade, metrosRibbon, ribbonId: it.ribbonId||'', tagProntoId: pronto.id, referencia: refInfo?refInfo.codigo:'', descricaoRef: refInfo?refInfo.descricao:'', pedidoId: producaoOrigemPedidoId||'',
       composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'' });
   });
   closeModal(); saveWS(); renderAll();
