@@ -1182,6 +1182,7 @@ function tagProntoListRowHtml(it){
       ${composicaoInfoHtml(tam, it.empresaId)}</div>
     <div class="l-val" style="display:flex;align-items:center;gap:8px;">
       <div>${fmtQty(it.quantidade)} un.<div class="l-sub">${fmtMoney(it.preco)}/milheiro</div></div>
+      <button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
     </div>
   </div>`;
 }
@@ -2457,6 +2458,35 @@ function printProducao(id){
   printDocument(html, text);
 }
 
+function materiaisAgrupadosPorDescricaoHtml(itens, chaveBase){
+  const isEtq = ws==='etiquetag';
+  const grupos = {};
+  itens.forEach(it=>{
+    const chave = it.nome || 'Sem descrição';
+    if(!grupos[chave]) grupos[chave] = [];
+    grupos[chave].push(it);
+  });
+  const nomes = Object.keys(grupos).sort((a,b)=>a.localeCompare(b));
+  const linhaItem = (it)=>{
+    const tipoTxt = isEtq ? (it.tipo==='Ribbon'?'Ribbon':it.tipo==='TagMP'?'Matéria-prima':it.tipo==='Tag'?'Produto pronto':'Outro') : (it.categoria||'Item');
+    const precoTxt = isEtq ? (it.tipo==='Ribbon'?fmtMoney(it.preco)+'/m':it.tipo==='TagMP'?fmtMoney(it.custo)+'/rolo (custo)':fmtMoney(it.preco)+'/milheiro') : fmtMoney(it.preco);
+    return `<tr><td><span class="code-tag">${esc(it.codigo)}</span></td><td>${esc(tagFullLabel(it))}</td><td>${esc(tipoTxt)}</td><td>${fmtQty(it.quantidade)} ${esc(it.unidade)}</td><td class="mono">${precoTxt}</td>
+    <td><div class="row-actions"><button class="icon-btn" title="Histórico de preço" onclick="openHistoricoPrecoModal('${it.id}')">${iconClock()}</button><button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
+    <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button></div></td></tr>`;
+  };
+  return nomes.map(nome=>{
+    const lista = grupos[nome];
+    const key = (chaveBase||'mat')+'-desc-'+nome.replace(/[^a-zA-Z0-9]/g,'').slice(0,40);
+    const collapsed = isColapsado(key);
+    return `<div style="border:1px solid var(--line);border-radius:8px;margin-bottom:8px;overflow:hidden;">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;background:var(--panel-alt,#FAF8F2);" onclick="togglePanel('${key}')">
+        ${chevronIcon(collapsed)}<strong style="font-size:13px;">${esc(nome)}</strong><span class="subtle">(${lista.length})</span>
+      </div>
+      ${collapsed ? '' : `<table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Estoque</th><th>Preço</th><th></th></tr></thead>
+      <tbody>${lista.map(linhaItem).join('')}</tbody></table>`}
+    </div>`;
+  }).join('');
+}
 function renderTamanhos(){
   const d = cur(); const isEtq = ws==='etiquetag';
   let html = '';
@@ -2537,15 +2567,9 @@ function renderTamanhos(){
   if(isEtq){
     html += collapsiblePanel('cad-materiais', 'Cadastro de Materiais', 'Descrição, tipo e valor de compra de cada material — usado para calcular o investimento no Financeiro. A quantidade em estoque é controlada em "Entrada de Insumo", abaixo.',
       `<div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-ghost btn-sm" onclick="openPreencherCustoZeradoModal()">${iconAdjust()} Preencher custo zerado</button><button class="btn btn-ghost btn-sm" onclick="openReajusteLoteModal()">${iconAdjust()} Reajustar preços em lote</button><button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button></div>`,
-      d.estoque.length ? `<table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Estoque atual</th><th>Preço</th><th></th></tr></thead>
-      <tbody>${[...d.estoque].sort((a,b)=>a.nome.localeCompare(b.nome)).map(it=>{
-        const tipoTxt = it.tipo==='Ribbon'?'Ribbon':it.tipo==='TagMP'?'Matéria-prima':it.tipo==='Tag'?'Produto pronto':'Outro';
-        const precoTxt = it.tipo==='Ribbon'?fmtMoney(it.preco)+'/m':it.tipo==='TagMP'?fmtMoney(it.custo)+'/rolo (custo)':fmtMoney(it.preco)+'/milheiro';
-        return `<tr><td><span class="code-tag">${esc(it.codigo)}</span></td><td>${esc(tagFullLabel(it))}</td><td>${esc(tipoTxt)}</td><td>${fmtQty(it.quantidade)} ${esc(it.unidade)}</td><td class="mono">${precoTxt}</td>
-        <td><div class="row-actions"><button class="icon-btn" title="Histórico de preço" onclick="openHistoricoPrecoModal('${it.id}')">${iconClock()}</button><button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
-        <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button></div></td></tr>`;
-      }).join('')}</tbody></table>`
+      d.estoque.length ? materiaisAgrupadosPorDescricaoHtml(d.estoque, 'cad-materiais')
       : `<div class="empty" style="padding:24px;"><p>Nenhum material cadastrado ainda.</p></div>`);
+
 
     const materiaisInsumo = d.estoque.filter(it=>it.tipo!=='Tag');
     const comprasRecentes = [...(d.compras||[])].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,25);
@@ -2585,14 +2609,7 @@ function renderTamanhos(){
   } else {
     html += collapsiblePanel('cad-materiais', 'Materiais cadastrados', 'Todos os itens do estoque, com edição rápida e o preço usado em pedidos/vendas.',
       `<button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button>`,
-      d.estoque.length ? `<table><thead><tr><th>Código</th><th>Nome</th><th>Tipo</th><th>Estoque</th><th>Preço</th><th></th></tr></thead>
-      <tbody>${[...d.estoque].sort((a,b)=>a.nome.localeCompare(b.nome)).map(it=>{
-        const tipoTxt = it.categoria||'Item';
-        const precoTxt = fmtMoney(it.preco);
-        return `<tr><td><span class="code-tag">${esc(it.codigo)}</span></td><td>${esc(tagFullLabel(it))}</td><td>${esc(tipoTxt)}</td><td>${fmtQty(it.quantidade)} ${esc(it.unidade)}</td><td class="mono">${precoTxt}</td>
-        <td><div class="row-actions"><button class="icon-btn" title="Histórico de preço" onclick="openHistoricoPrecoModal('${it.id}')">${iconClock()}</button><button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
-        <button class="icon-btn" title="Excluir" onclick="deleteEstoqueItem('${it.id}')">${iconTrash()}</button></div></td></tr>`;
-      }).join('')}</tbody></table>`
+      d.estoque.length ? materiaisAgrupadosPorDescricaoHtml(d.estoque, 'cad-materiais')
       : `<div class="empty" style="padding:24px;"><p>Nenhum material cadastrado ainda.</p></div>`);
   }
 
