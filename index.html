@@ -342,6 +342,7 @@ function migrateIfNeeded(wsKey, raw){
   if(!raw.empresas) raw.empresas = [];
   if(!raw.producoes) raw.producoes = [];
   if(!raw.ribbonDescricoes) raw.ribbonDescricoes = [];
+  raw.ribbonDescricoes.forEach(r=>{ if(!r.tipo) r.tipo = 'Cera'; });
   if(!raw.compras) raw.compras = [];
   if(!raw.outrosTipos) raw.outrosTipos = [];
   if(!raw.qrPagamento) raw.qrPagamento = {foto:'', legenda:''};
@@ -401,6 +402,7 @@ function migrateIfNeeded(wsKey, raw){
     if(it.composicaoId===undefined) it.composicaoId = '';
     if(it.recPadraoId===undefined) it.recPadraoId = '';
     if(it.referenciaId===undefined) it.referenciaId = '';
+    if(!it.codigosBarras) it.codigosBarras = [];
     if(it.outroTipo===undefined) it.outroTipo = '';
     if(!it.historicoPrecos) it.historicoPrecos = [];
     if(it.outroPronto===undefined) it.outroPronto = false;
@@ -438,6 +440,7 @@ function migrateIfNeeded(wsKey, raw){
       delete t.composicaoTexto;
       if(!t.recomendacoes) t.recomendacoes = [];
       if(!t.precosPorRibbon) t.precosPorRibbon = t.composicao ? {Cera:t.precoMilheiro||0, 'Têxtil':t.precoMilheiro||0, Misto:t.precoMilheiro||0} : {Cera:0,'Têxtil':0,Misto:0};
+      if(!t.codigosBarras) t.codigosBarras = [];
     });
   }
   if(!raw.seq.tm) raw.seq.tm = 1;
@@ -476,7 +479,7 @@ async function loadAll(){
     DATA.etiquetag.numeracoes = ['P','M','G','GG','XG','36','38','40','42','44','46','48','50','52','54','56','58'].map(n=>({id:uid(), nome:n}));
   }
   if(!DATA.etiquetag.ribbonDescricoes.length){
-    DATA.etiquetag.ribbonDescricoes = ['Ribbon Preto 110mm','Ribbon Metalizado 110mm'].map(n=>({id:uid(), nome:n}));
+    DATA.etiquetag.ribbonDescricoes = ['Ribbon Preto 110mm','Ribbon Metalizado 110mm'].map(n=>({id:uid(), nome:n, tipo:'Cera'}));
   }
   if(!DATA.vimats.tamanhos.length){
     DATA.vimats.tamanhos = ['P','M','G','GG','XG'].map(n=>({id:uid(), nome:n}));
@@ -1191,8 +1194,9 @@ function openEstoqueForm(id){
   const d = cur();
   const it = id ? d.estoque.find(x=>x.id===id) : {
     nome:'', tipo: isEtq?'Ribbon':'', tipoRibbon:'Cera', tamanhoId:'', ribbonId:'', numeracaoId:'', categoria:'', categoriaTag:'Tag', empresaId:'', fornecedor:'', metrosPorRolo:300,
-    quantidade:0, unidade: isEtq?'metro':'un', estoqueMinimo:0, custo:0, margem:0, preco:0
+    quantidade:0, unidade: isEtq?'metro':'un', estoqueMinimo:0, custo:0, margem:0, preco:0, codigosBarras:[]
   };
+  tempCodigosBarrasRibbon = [...(it.codigosBarras||[])];
   const empresasCatalog = d.empresas||[];
   const tipoAtual = tipoRadioValue(it);
   const tipoAtualNorm = normalizarTipoRadio(tipoAtual);
@@ -1235,6 +1239,11 @@ function openEstoqueForm(id){
       <div class="field"><label>Metros por rolo</label><input type="number" step="0.001" min="0" id="f_metrosrolo" value="${it.metrosPorRolo||300}" oninput="updateRibbonCusto()"></div>
     </div>
     <p class="hint" id="ribbonCustoHint">Custo por metro: ${fmtMoney3(it.preco||0)}</p>
+    <div class="field"><label>Códigos de barras deste ribbon</label>
+      <p class="hint" style="margin-top:0;">Use o código de barras do fornecedor. Se ele trocar o código do mesmo produto, adicione um novo aqui (mantendo o antigo) — se for outro produto de verdade, cadastre um ribbon novo em vez de somar códigos aqui.</p>
+      <div id="codigosBarrasRibbonBody"></div>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="addCodigoBarrasRibbon()" style="margin-top:4px;">${iconPlus()} Adicionar código de barras</button>
+    </div>
     </div>` : '';
 
   const tamanhoSelectHtml = `<select id="f_tamanho" onchange="updatePricingPreview()"><option value="">Selecione</option>
@@ -1317,7 +1326,7 @@ function openEstoqueForm(id){
     <form onsubmit="saveEstoque(event)">
       <div class="modal-body">
         ${typeSelector}
-        <div class="field" id="nomeFieldWrap" style="display:${(tipoAtualNorm==='Tag'||tipoAtualNorm==='TagMP')?'none':'block'}"><label>Nome</label><input ${(tipoAtualNorm==='Tag'||tipoAtualNorm==='TagMP')?'':'required'} id="f_nome" list="${(isEtq&&tipoAtualNorm==='Ribbon')?'ribbonNomesList':''}" value="${esc(it.nome)}" placeholder="${isEtq?'Ex.: Ribbon preto 110mm / Tag 35x60':'Ex.: Camiseta branca'}"></div>
+        <div class="field" id="nomeFieldWrap" style="display:${(tipoAtualNorm==='Tag'||tipoAtualNorm==='TagMP')?'none':'block'}"><label>Nome</label><input ${(tipoAtualNorm==='Tag'||tipoAtualNorm==='TagMP')?'':'required'} id="f_nome" list="${(isEtq&&tipoAtualNorm==='Ribbon')?'ribbonNomesList':''}" value="${esc(it.nome)}" placeholder="${isEtq?'Ex.: Ribbon preto 110mm / Tag 35x60':'Ex.: Camiseta branca'}" ${(isEtq&&tipoAtualNorm==='Ribbon')?'oninput="preencherTipoPorDescricaoRibbon(this.value)"':''}></div>
         ${isEtq ? `<datalist id="ribbonNomesList">${(d.ribbonDescricoes||[]).map(r=>`<option value="${esc(r.nome)}">`).join('')}</datalist>` : ''}
         ${ribbonFields}${tagMpFields}${tagProntoFields}${outroTipoFields}${vimatsFields}
         <div class="field-row3">
@@ -1337,6 +1346,7 @@ function openEstoqueForm(id){
   updatePricingPreview();
   updateRibbonCusto();
   if(isEtq && tipoAtualNorm==='Tag') atualizarCamposComposicaoPronto(it);
+  if(isEtq && tipoAtualNorm==='Ribbon') renderCodigosBarrasRibbon();
 }
 function handleFotoUpload(input){
   const file = input.files && input.files[0];
@@ -1475,6 +1485,7 @@ function toggleTipoItem(tipoRadio){
   refreshModeloOptions('f_descricaomp', isComposicao);
   refreshModeloOptions('f_descricaoproduto', isComposicao);
   atualizarCamposComposicaoPronto();
+  if(tipo==='Ribbon') renderCodigosBarrasRibbon();
   renderPricingSectionVisibility(tipo);
   updatePricingPreview();
 }
@@ -1533,6 +1544,19 @@ function updateDescricaoMP(){
   if(nomeInput) nomeInput.value = tam ? tam.nome : '';
   updatePricingPreview();
 }
+let tempCodigosBarrasRibbon = [];
+function renderCodigosBarrasRibbon(){
+  const body = document.getElementById('codigosBarrasRibbonBody');
+  if(!body) return;
+  body.innerHTML = tempCodigosBarrasRibbon.map((cod,idx)=>`
+    <div style="display:grid;grid-template-columns:1fr 30px;gap:8px;align-items:center;margin-bottom:6px;">
+      <input type="text" value="${esc(cod)}" placeholder="Ex.: 7891234567890" oninput="updateCodigoBarrasRibbon(${idx},this.value)">
+      <button type="button" class="icon-btn" onclick="removeCodigoBarrasRibbon(${idx})">${iconX()}</button>
+    </div>`).join('') || `<p class="hint" style="margin:0 0 6px;">Nenhum código cadastrado ainda.</p>`;
+}
+function addCodigoBarrasRibbon(){ tempCodigosBarrasRibbon.push(''); renderCodigosBarrasRibbon(); }
+function updateCodigoBarrasRibbon(idx, value){ tempCodigosBarrasRibbon[idx] = value; }
+function removeCodigoBarrasRibbon(idx){ tempCodigosBarrasRibbon.splice(idx,1); renderCodigosBarrasRibbon(); }
 function updateRibbonCusto(){
   const rEl = document.getElementById('f_precorolo');
   const mEl = document.getElementById('f_metrosrolo');
@@ -1615,6 +1639,7 @@ function saveEstoque(e){
     referenciaId: (isEtq && tipo==='Tag' && document.getElementById('f_referenciapronto')) ? document.getElementById('f_referenciapronto').value : '',
     referencia: (isEtq && tipo==='Tag' && document.getElementById('f_referenciapronto') && document.getElementById('f_referenciapronto').value)
       ? ((allReferenciasList().find(r=>r.id===document.getElementById('f_referenciapronto').value)||{}).codigo||'') : '',
+    codigosBarras: (isEtq && tipo==='Ribbon') ? tempCodigosBarrasRibbon.map(c=>c.trim()).filter(Boolean) : [],
     quantidade: quantidadeInformada,
     unidade: document.getElementById('f_unidade').value.trim()||'un',
     estoqueMinimo: estoqueMinimoInformado,
@@ -1841,14 +1866,34 @@ function buscarPorCodigoBarras(){
   const d = cur();
   const input = document.getElementById('f_buscacodbarras');
   const codigo = input.value.trim();
+  const codigoLower = codigo.toLowerCase();
   const resultadoEl = document.getElementById('resultadoBuscaCodBarras');
   if(!codigo){ resultadoEl.innerHTML = `<p class="hint" style="color:#B23A3A;">Digite ou escaneie um código de barras.</p>`; return; }
-  const refsEncontradas = allReferenciasList().filter(r=>r.codigoBarras && r.codigoBarras.trim().toLowerCase()===codigo.toLowerCase());
-  if(!refsEncontradas.length){ resultadoEl.innerHTML = `<p class="hint" style="color:#B23A3A;">Nenhuma referência cadastrada com esse código de barras.</p>`; return; }
-  const refIds = refsEncontradas.map(r=>r.id);
-  const itensEncontrados = d.estoque.filter(it=>refIds.includes(it.referenciaId));
+
+  let itensEncontrados = [];
+
+  // 1) Ribbons com esse código de barras cadastrado diretamente
+  itensEncontrados = itensEncontrados.concat(d.estoque.filter(it=>it.tipo==='Ribbon' && (it.codigosBarras||[]).some(c=>c.trim().toLowerCase()===codigoLower)));
+
+  // 2) Modelos com esse código de barras — resolve para a matéria-prima (TagMP) daquele modelo
+  const modelosEncontrados = d.tamanhos.filter(t=>(t.codigosBarras||[]).some(c=>c.trim().toLowerCase()===codigoLower));
+  if(modelosEncontrados.length){
+    const modeloIds = modelosEncontrados.map(t=>t.id);
+    itensEncontrados = itensEncontrados.concat(d.estoque.filter(it=>it.tipo==='TagMP' && modeloIds.includes(it.tamanhoId)));
+  }
+
+  // 3) Referências cadastradas por empresa (produtos prontos vinculados)
+  const refsEncontradas = allReferenciasList().filter(r=>r.codigoBarras && r.codigoBarras.trim().toLowerCase()===codigoLower);
+  if(refsEncontradas.length){
+    const refIds = refsEncontradas.map(r=>r.id);
+    itensEncontrados = itensEncontrados.concat(d.estoque.filter(it=>refIds.includes(it.referenciaId)));
+  }
+
+  // remove duplicados
+  itensEncontrados = itensEncontrados.filter((it,idx)=>itensEncontrados.findIndex(x=>x.id===it.id)===idx);
+
   if(!itensEncontrados.length){
-    resultadoEl.innerHTML = `<p class="hint" style="color:#B23A3A;">Referência "${esc(refsEncontradas[0].codigo)}" encontrada, mas nenhum item de estoque está vinculado a ela ainda.</p>`;
+    resultadoEl.innerHTML = `<p class="hint" style="color:#B23A3A;">Nenhum material, modelo ou referência cadastrado com esse código de barras.</p>`;
     return;
   }
   if(itensEncontrados.length===1){
@@ -1857,7 +1902,7 @@ function buscarPorCodigoBarras(){
     openAjusteModal(itensEncontrados[0].id);
     return;
   }
-  resultadoEl.innerHTML = `<p class="hint" style="margin-top:10px;">Mais de um item usa essa referência — escolha qual:</p>
+  resultadoEl.innerHTML = `<p class="hint" style="margin-top:10px;">Mais de um item usa esse código — escolha qual:</p>
     <div style="display:flex;flex-direction:column;gap:6px;">
       ${itensEncontrados.map(it=>`<button type="button" class="btn btn-ghost" style="justify-content:flex-start;" onclick="pararScannerCamera();closeModal();openAjusteModal('${it.id}')">${esc(it.codigo)} — ${esc(tagFullLabel(it))} (${fmtQty(it.quantidade)} ${esc(it.unidade)})</button>`).join('')}
     </div>`;
@@ -2440,10 +2485,10 @@ function renderTamanhos(){
     `<button class="btn btn-accent btn-sm" onclick="openTamanhoForm()">${iconPlus()} Novo modelo</button>`, modelosContent);
 
   if(isEtq){
-    html += collapsiblePanel('cad-ribbondesc', 'Descrições de Ribbon', 'Nomes padrão sugeridos ao cadastrar um novo Ribbon.',
+    html += collapsiblePanel('cad-ribbondesc', 'Descrições de Ribbon', 'Nomes padrão sugeridos ao cadastrar um novo Ribbon, já com o tipo de material identificado.',
       `<button class="btn btn-accent btn-sm" onclick="openRibbonDescForm()">${iconPlus()} Nova descrição</button>`,
-      (d.ribbonDescricoes||[]).length ? `<table><thead><tr><th>Descrição</th><th></th></tr></thead>
-      <tbody>${d.ribbonDescricoes.map(r=>`<tr><td>${esc(r.nome)}</td>
+      (d.ribbonDescricoes||[]).length ? `<table><thead><tr><th>Descrição</th><th>Tipo</th><th></th></tr></thead>
+      <tbody>${d.ribbonDescricoes.map(r=>`<tr><td>${esc(r.nome)}</td><td><span class="cat-tag">${esc(r.tipo||'Cera')}</span></td>
         <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openRibbonDescForm('${r.id}')">${iconEdit()}</button>
         <button class="icon-btn" title="Excluir" onclick="deleteRibbonDesc('${r.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
       : `<div class="empty" style="padding:24px;"><p>Nenhuma descrição cadastrada.</p></div>`);
@@ -2532,17 +2577,24 @@ function renderTamanhos(){
 function openRibbonDescForm(id){
   editingId = id || null;
   const d = cur();
-  const r = id ? d.ribbonDescricoes.find(x=>x.id===id) : {nome:''};
+  const r = id ? d.ribbonDescricoes.find(x=>x.id===id) : {nome:'', tipo:'Cera'};
   openModal(`
     <div class="modal-head"><h3>${id?'Editar':'Nova'} descrição de Ribbon</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <form onsubmit="saveRibbonDesc(event)">
-      <div class="modal-body"><div class="field"><label>Descrição</label><input required id="f_nome" value="${esc(r.nome)}" placeholder="Ex.: Ribbon Preto 110mm"></div></div>
+      <div class="modal-body">
+        <div class="field"><label>Descrição</label><input required id="f_nome" value="${esc(r.nome)}" placeholder="Ex.: Ribbon Preto 110mm"></div>
+        <div class="field"><label>Tipo</label><select id="f_tiporibbondesc">
+          <option value="Cera" ${r.tipo==='Cera'?'selected':''}>Cera</option>
+          <option value="Têxtil" ${r.tipo==='Têxtil'?'selected':''}>Têxtil</option>
+          <option value="Misto" ${r.tipo==='Misto'?'selected':''}>Misto</option>
+        </select></div>
+      </div>
       <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
     </form>`);
 }
 function saveRibbonDesc(e){
   e.preventDefault();
-  const data = { nome: document.getElementById('f_nome').value.trim() };
+  const data = { nome: document.getElementById('f_nome').value.trim(), tipo: document.getElementById('f_tiporibbondesc').value };
   const d = cur();
   if(!d.ribbonDescricoes) d.ribbonDescricoes = [];
   if(editingId){ Object.assign(d.ribbonDescricoes.find(x=>x.id===editingId), data); }
@@ -2684,12 +2736,21 @@ function recomendacoesChecklistHtml(selecionadas, cssClass){
   </div>`;
 }
 let tempComposicoes = [];
+let tempCodigosBarrasModelo = [];
+function preencherTipoPorDescricaoRibbon(nomeDigitado){
+  const d = cur();
+  const desc = (d.ribbonDescricoes||[]).find(r=>r.nome===nomeDigitado);
+  if(!desc || !desc.tipo) return;
+  const sel = document.getElementById('f_tiporibbon');
+  if(sel) sel.value = desc.tipo;
+}
 function openTamanhoForm(id){
   editingId = id || null;
   const isEtq = ws==='etiquetag';
   const d = cur();
-  const t = id ? d.tamanhos.find(x=>x.id===id) : {nome:'',dimensao:'',unidadesPorRolo:0,passoMm:0,etiquetasPorMetroManual:0,precoMilheiro:0,composicao:false,composicoes:[],recomendacoes:[],precosPorRibbon:{Cera:0,'Têxtil':0,Misto:0}};
+  const t = id ? d.tamanhos.find(x=>x.id===id) : {nome:'',dimensao:'',unidadesPorRolo:0,passoMm:0,etiquetasPorMetroManual:0,precoMilheiro:0,composicao:false,composicoes:[],recomendacoes:[],precosPorRibbon:{Cera:0,'Têxtil':0,Misto:0},codigosBarras:[]};
   tempComposicoes = JSON.parse(JSON.stringify(t.composicoes||[]));
+  tempCodigosBarrasModelo = [...(t.codigosBarras||[])];
   const ppr = t.precosPorRibbon || {Cera:0,'Têxtil':0,Misto:0};
   openModal(`
     <div class="modal-head"><h3>${id?'Editar':'Novo'} ${isEtq?'modelo':'tamanho'}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
@@ -2704,6 +2765,11 @@ function openTamanhoForm(id){
           <div class="field"><label>Etiquetas/metro (se souber, opcional)</label><input type="number" step="0.001" min="0" id="f_epm" value="${t.etiquetasPorMetroManual}"></div>
         </div>
         <p class="hint">O passo é a altura da etiqueta + o espaço entre etiquetas no rolo. Esses valores definem quanto ribbon é consumido por etiqueta.</p>
+        <div class="field"><label>Códigos de barras deste modelo</label>
+          <p class="hint" style="margin-top:0;">Use o código de barras do fornecedor. Se ele mudar o código do mesmo produto, adicione um novo aqui (mantendo o antigo no histórico) — se for outra referência de verdade, crie um modelo novo em vez de somar códigos aqui.</p>
+          <div id="codigosBarrasModeloBody"></div>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addCodigoBarrasModelo()" style="margin-top:4px;">${iconPlus()} Adicionar código de barras</button>
+        </div>
         <div class="field" id="precoMilheiroWrap" style="display:${t.composicao?'none':'block'}"><label>Valor de venda por milheiro (R$)</label><input type="number" step="0.001" min="0" id="f_precomilheiro" value="${t.precoMilheiro||0}"></div>
         <p class="hint" id="precoMilheiroHint" style="display:${t.composicao?'none':'block'}">Esse é o preço de referência deste produto — aparece automaticamente ao selecioná-lo num pedido ou ao produzir, mas pode ser ajustado caso a caso.</p>
         <div class="field"><label><input type="checkbox" id="f_composicao" ${t.composicao?'checked':''} onchange="toggleComposicaoFields()" style="width:auto;margin-right:6px;"> Este modelo é uma Etiqueta de Composição</label></div>
@@ -2730,7 +2796,20 @@ function openTamanhoForm(id){
       <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
     </form>`);
   renderComposicoesBody();
+  if(isEtq) renderCodigosBarrasModelo();
 }
+function renderCodigosBarrasModelo(){
+  const body = document.getElementById('codigosBarrasModeloBody');
+  if(!body) return;
+  body.innerHTML = tempCodigosBarrasModelo.map((cod,idx)=>`
+    <div style="display:grid;grid-template-columns:1fr 30px;gap:8px;align-items:center;margin-bottom:6px;">
+      <input type="text" value="${esc(cod)}" placeholder="Ex.: 7891234567890" oninput="updateCodigoBarrasModelo(${idx},this.value)">
+      <button type="button" class="icon-btn" onclick="removeCodigoBarrasModelo(${idx})">${iconX()}</button>
+    </div>`).join('') || `<p class="hint" style="margin:0 0 6px;">Nenhum código cadastrado ainda.</p>`;
+}
+function addCodigoBarrasModelo(){ tempCodigosBarrasModelo.push(''); renderCodigosBarrasModelo(); }
+function updateCodigoBarrasModelo(idx, value){ tempCodigosBarrasModelo[idx] = value; }
+function removeCodigoBarrasModelo(idx){ tempCodigosBarrasModelo.splice(idx,1); renderCodigosBarrasModelo(); }
 function renderComposicoesBody(){
   const body = document.getElementById('composicoesBody');
   if(!body) return;
@@ -2781,6 +2860,7 @@ function saveTamanho(e){
       Misto: parseFloat((document.getElementById('f_precomisto')||{}).value)||0,
     } : {Cera:0,'Têxtil':0,Misto:0},
     composicoes: isEtq ? tempComposicoes.map(p=>({id:p.id||uid(), fibras:(p.fibras||[]).filter(f=>f.fibra&&f.fibra.trim()).map(f=>({percentual:(f.percentual||'').trim(), fibra:f.fibra.trim()}))})).filter(p=>p.fibras.length) : [],
+    codigosBarras: isEtq ? tempCodigosBarrasModelo.map(c=>c.trim()).filter(Boolean) : [],
     recomendacoes: isEtq ? Array.from(document.querySelectorAll('.f_recomendacao:checked')).map(el=>el.value) : [] };
   const d = cur();
   const duplicado = d.tamanhos.find(t=>t.id!==editingId && t.nome.toLowerCase()===data.nome.toLowerCase());
