@@ -318,7 +318,7 @@ const WS_META = {
 let ws = 'etiquetag';
 let estoqueFiltro = 'todos';
 function emptyData(){
-  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[], outrosTipos:[], responsaveisFinanceiros:[],
+  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[], outrosTipos:[], responsaveisFinanceiros:[], ajustesEstoque:[],
     qrPagamento:{foto:'', legenda:''},
     configImpressao:{formato:'a4', assinatura:true, documento:true}, seq:{pd:1,vd:1,rb:1,tm:1,tg:1,it:1} };
 }
@@ -346,6 +346,7 @@ function migrateIfNeeded(wsKey, raw){
   if(!raw.outrosTipos) raw.outrosTipos = [];
   if(!raw.qrPagamento) raw.qrPagamento = {foto:'', legenda:''};
   if(!raw.responsaveisFinanceiros) raw.responsaveisFinanceiros = [];
+  if(!raw.ajustesEstoque) raw.ajustesEstoque = [];
   raw.empresas.forEach(e=>{ if(e.responsavelFinanceiroId===undefined) e.responsavelFinanceiroId = ''; });
   if(!raw.estoque) raw.estoque = [];
   raw.empresas.forEach(e=>{
@@ -1921,6 +1922,118 @@ function registrarEntradaInsumo(){
   saveWS(); renderAll();
   showToast('Entrada registrada com sucesso.', 'good');
 }
+function atualizarCamposAjusteEstoque(){
+  const wrap = document.getElementById('camposAjusteEstoque');
+  const sel = document.getElementById('f_ajustematerial');
+  if(!wrap || !sel) return;
+  const item = cur().estoque.find(x=>x.id===sel.value);
+  if(!item){ wrap.innerHTML = ''; return; }
+  const isTagMp = item.tipo==='TagMP';
+  const isRibbon = item.tipo==='Ribbon';
+  const tam = isTagMp ? tamanhoObj(item.tamanhoId) : null;
+  const upr = tam ? (tam.unidadesPorRolo||0) : 0;
+  const metrosPorRolo = isRibbon ? (item.metrosPorRolo||0) : 0;
+  const temConversao = (isTagMp && upr>0) || (isRibbon && metrosPorRolo>0);
+  const unidadeBase = isRibbon ? 'metros' : 'unidades';
+  const estoqueAtualTxt = isRibbon
+    ? `${fmtQty(item.quantidade)} metros${metrosPorRolo>0?' ('+fmtQty(item.quantidade/metrosPorRolo)+' rolos)':''}`
+    : isTagMp
+      ? `${fmtQty(item.quantidade)} rolos${upr>0?' ('+fmtQty(item.quantidade*upr)+' un.)':''}`
+      : `${fmtQty(item.quantidade)} ${esc(item.unidade)}`;
+  wrap.innerHTML = `
+    <p class="hint">Estoque atual: <strong class="mono">${estoqueAtualTxt}</strong></p>
+    <div class="field"><label>Tipo de ajuste</label>
+      <div class="radio-row"><label><input type="radio" name="f_ajustetipo" value="entrada" checked> Entrada (aumentar)</label><label><input type="radio" name="f_ajustetipo" value="saida"> Saída (diminuir)</label></div>
+    </div>
+    ${temConversao ? `
+    <div class="field"><label>Registrar em</label>
+      <div class="radio-row"><label><input type="radio" name="f_ajusteunidade" value="base" checked onchange="atualizarCampoRoloAjuste()"> ${esc(unidadeBase.charAt(0).toUpperCase()+unidadeBase.slice(1))}</label><label><input type="radio" name="f_ajusteunidade" value="rolo" onchange="atualizarCampoRoloAjuste()"> Rolos</label></div>
+    </div>
+    <div class="field" id="campoRoloAjuste" style="display:none;"><label>${isRibbon?'Metros':'Unidades'} por rolo</label><input type="number" step="0.001" min="0.001" id="f_ajusterolovar" value="${isRibbon?metrosPorRolo:upr}"></div>
+    <div class="field"><label>Quantidade</label><input required type="number" step="0.001" min="0.001" id="f_ajusteqtd" placeholder="0"></div>`
+    : `<div class="field"><label>Quantidade (${esc(item.unidade)})</label><input required type="number" step="0.001" min="0.001" id="f_ajusteqtd" placeholder="0"></div>`}
+    <div class="field"><label>Motivo (opcional)</label><input id="f_ajustemotivo" placeholder="Ex.: contagem de inventário, perda, avaria"></div>
+  `;
+}
+function atualizarCampoRoloAjuste(){
+  const sel = document.querySelector('input[name="f_ajusteunidade"]:checked');
+  const campo = document.getElementById('campoRoloAjuste');
+  if(campo) campo.style.display = (sel && sel.value==='rolo') ? 'block' : 'none';
+}
+function registrarAjusteEstoque(){
+  const d = cur();
+  const selMat = document.getElementById('f_ajustematerial');
+  const item = d.estoque.find(x=>x.id===selMat.value);
+  if(!item){ showToast('Selecione um material.', 'bad'); return; }
+  const tipo = document.querySelector('input[name="f_ajustetipo"]:checked').value;
+  const qtdEl = document.getElementById('f_ajusteqtd');
+  let qtd = qtdEl ? (parseFloat(qtdEl.value)||0) : 0;
+  if(qtd<=0){ showToast('Informe uma quantidade válida.', 'bad'); return; }
+  const unidadeSel = document.querySelector('input[name="f_ajusteunidade"]:checked');
+  if(unidadeSel && unidadeSel.value==='rolo'){
+    const roloVarEl = document.getElementById('f_ajusterolovar');
+    const porRolo = roloVarEl ? (parseFloat(roloVarEl.value)||0) : 0;
+    if(porRolo>0) qtd = qtd*porRolo;
+  }
+  if(tipo==='saida' && qtd>item.quantidade){ showToast('Quantidade de saída maior que o estoque disponível.', 'bad'); return; }
+  const motivo = (document.getElementById('f_ajustemotivo')||{}).value.trim()||'';
+  item.quantidade = tipo==='entrada' ? item.quantidade+qtd : item.quantidade-qtd;
+  if(!d.ajustesEstoque) d.ajustesEstoque = [];
+  d.ajustesEstoque.push({ id: uid(), data: todayISO(), itemId: item.id, itemNome: item.nome, tipo, quantidade: qtd, unidade: item.unidade, motivo });
+  saveWS(); renderAll();
+  showToast('Ajuste de estoque registrado.', 'good');
+}
+function abrirEditarAjusteEstoque(ajusteId){
+  const d = cur();
+  const ajuste = (d.ajustesEstoque||[]).find(a=>a.id===ajusteId);
+  if(!ajuste) return;
+  openModal(`
+    <div class="modal-head"><h3>Editar ajuste de estoque</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="salvarEdicaoAjusteEstoque(event,'${ajusteId}')">
+      <div class="modal-body">
+        <p class="hint" style="margin-top:0;">${esc(ajuste.itemNome)} — ${fmtDate(ajuste.data)}</p>
+        <div class="field"><label>Tipo</label>
+          <div class="radio-row"><label><input type="radio" name="f_editajustetipo" value="entrada" ${ajuste.tipo==='entrada'?'checked':''}> Entrada</label><label><input type="radio" name="f_editajustetipo" value="saida" ${ajuste.tipo==='saida'?'checked':''}> Saída</label></div>
+        </div>
+        <div class="field"><label>Quantidade (${esc(ajuste.unidade)})</label><input required type="number" step="0.001" min="0" id="f_editajusteqtd" value="${ajuste.quantidade}"></div>
+        <div class="field"><label>Motivo</label><input id="f_editajustemotivo" value="${esc(ajuste.motivo||'')}"></div>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-ghost" style="color:#B23A3A;" onclick="excluirAjusteEstoque('${ajusteId}')">${iconTrash()} Excluir</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
+    </form>`);
+}
+function salvarEdicaoAjusteEstoque(e, ajusteId){
+  e.preventDefault();
+  const d = cur();
+  const ajuste = (d.ajustesEstoque||[]).find(a=>a.id===ajusteId);
+  if(!ajuste) return;
+  const item = d.estoque.find(x=>x.id===ajuste.itemId);
+  const novoTipo = document.querySelector('input[name="f_editajustetipo"]:checked').value;
+  const novaQtd = parseFloat(document.getElementById('f_editajusteqtd').value)||0;
+  if(item){
+    const efeitoAntigo = ajuste.tipo==='entrada' ? ajuste.quantidade : -ajuste.quantidade;
+    const efeitoNovo = novoTipo==='entrada' ? novaQtd : -novaQtd;
+    item.quantidade = item.quantidade - efeitoAntigo + efeitoNovo;
+  }
+  ajuste.tipo = novoTipo;
+  ajuste.quantidade = novaQtd;
+  ajuste.motivo = document.getElementById('f_editajustemotivo').value.trim();
+  closeModal(); saveWS(); renderAll();
+  showToast('Ajuste atualizado.', 'good');
+}
+function excluirAjusteEstoque(ajusteId){
+  const d = cur();
+  const ajuste = (d.ajustesEstoque||[]).find(a=>a.id===ajusteId);
+  if(!ajuste) return;
+  if(!confirm('Excluir este ajuste? O efeito dele no estoque será desfeito.')) return;
+  const item = d.estoque.find(x=>x.id===ajuste.itemId);
+  if(item){
+    const efeito = ajuste.tipo==='entrada' ? ajuste.quantidade : -ajuste.quantidade;
+    item.quantidade -= efeito;
+  }
+  d.ajustesEstoque = d.ajustesEstoque.filter(a=>a.id!==ajusteId);
+  closeModal(); saveWS(); renderAll();
+  showToast('Ajuste excluído.', 'good');
+}
 function abrirEditarEntradaInsumo(compraId){
   const d = cur();
   const compra = (d.compras||[]).find(c=>c.id===compraId);
@@ -2359,6 +2472,7 @@ function renderTamanhos(){
 
     const materiaisInsumo = d.estoque.filter(it=>it.tipo!=='Tag');
     const comprasRecentes = [...(d.compras||[])].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,25);
+    const ajustesRecentes = [...(d.ajustesEstoque||[])].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,25);
     html += collapsiblePanel('cad-entradainsumo', 'Entrada de Insumo', 'Escolha um material já cadastrado e informe a quantidade recebida. Fica registrado na lista abaixo, com opção de editar se errar ou esquecer algo.',
       `<button class="btn btn-ghost btn-sm" onclick="abrirBuscaCodigoBarrasModal()">${iconBox()} Por código de barras</button>`,
       `<div class="field"><label>Material</label><select id="f_entradamaterial" onchange="atualizarCamposEntradaInsumo()">
@@ -2373,6 +2487,23 @@ function renderTamanhos(){
         <tbody>${comprasRecentes.map(c=>`<tr><td>${fmtDate(c.data)}</td><td>${esc(c.itemNome)}</td><td class="mono">${fmtQty(c.quantidade)} ${esc(c.unidade)}</td><td class="mono">${fmtMoney(c.valor)}</td>
           <td><button class="icon-btn" title="Editar esta entrada" onclick="abrirEditarEntradaInsumo('${c.id}')">${iconEdit()}</button></td></tr>`).join('')}</tbody></table>`
         : `<div class="empty" style="padding:16px;"><p>Nenhuma entrada registrada ainda.</p></div>`}
+      </div>
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line);">
+        <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin-bottom:2px;">Ajuste de Estoque</div>
+        <p class="hint" style="margin-top:0;">Use quando a quantidade real não bate com o sistema (contagem de inventário, perda, avaria) — não é uma compra, por isso não tem valor associado.</p>
+        <div class="field"><label>Material</label><select id="f_ajustematerial" onchange="atualizarCamposAjusteEstoque()">
+          <option value="">Selecione o material</option>
+          ${materiaisInsumo.map(it=>`<option value="${it.id}">${esc(it.nome)} (${esc(it.codigo)})</option>`).join('')}
+        </select></div>
+        <div id="camposAjusteEstoque"></div>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="registrarAjusteEstoque()" style="margin-top:8px;">${iconAdjust()} Registrar ajuste</button>
+        <div style="margin-top:14px;">
+          <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin-bottom:8px;">Ajustes de estoque registrados</div>
+          ${ajustesRecentes.length ? `<table><thead><tr><th>Data</th><th>Material</th><th>Tipo</th><th>Quantidade</th><th>Motivo</th><th></th></tr></thead>
+          <tbody>${ajustesRecentes.map(a=>`<tr><td>${fmtDate(a.data)}</td><td>${esc(a.itemNome)}</td><td>${a.tipo==='entrada'?'Entrada':'Saída'}</td><td class="mono">${fmtQty(a.quantidade)} ${esc(a.unidade)}</td><td>${esc(a.motivo||'—')}</td>
+            <td><button class="icon-btn" title="Editar este ajuste" onclick="abrirEditarAjusteEstoque('${a.id}')">${iconEdit()}</button></td></tr>`).join('')}</tbody></table>`
+          : `<div class="empty" style="padding:16px;"><p>Nenhum ajuste registrado ainda.</p></div>`}
+        </div>
       </div>`);
   } else {
     html += collapsiblePanel('cad-materiais', 'Materiais cadastrados', 'Todos os itens do estoque, com edição rápida e o preço usado em pedidos/vendas.',
