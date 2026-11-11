@@ -3,7 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Estoque Central</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0A2C5C">
 <meta name="mobile-web-app-capable" content="yes">
@@ -12,6 +11,7 @@
 <meta name="apple-mobile-web-app-title" content="Estoque">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Estoque Central</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -318,9 +318,9 @@ const WS_META = {
 let ws = 'etiquetag';
 let estoqueFiltro = 'todos';
 function emptyData(){
-  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[], outrosTipos:[], responsaveisFinanceiros:[], ajustesEstoque:[], fabricacoes:[],
+  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[], outrosTipos:[], responsaveisFinanceiros:[], ajustesEstoque:[], fabricacoes:[], fechamentos:[],
     qrPagamento:{foto:'', legenda:''},
-    configImpressao:{formato:'a4', assinatura:true, documento:true}, seq:{pd:1,vd:1,rb:1,tm:1,tg:1,it:1} };
+    configImpressao:{formato:'a4', assinatura:true, documento:true}, seq:{pd:1,vd:1,rb:1,tm:1,tg:1,it:1,doc:0,en:1,aj:1,fc:1} };
 }
 let DATA = { etiquetag: emptyData(), vimats: emptyData() };
 const appStorage = (window.storage && typeof window.storage.get==='function') ? window.storage : {
@@ -349,6 +349,10 @@ function migrateIfNeeded(wsKey, raw){
   if(!raw.responsaveisFinanceiros) raw.responsaveisFinanceiros = [];
   if(!raw.ajustesEstoque) raw.ajustesEstoque = [];
   if(!raw.fabricacoes) raw.fabricacoes = [];
+  if(!raw.fechamentos) raw.fechamentos = [];
+  if(!raw.seq) raw.seq = {};
+  ['pd','vd','rb','tm','tg','it','en','aj','fc'].forEach(k=>{ if(!raw.seq[k]) raw.seq[k]=1; });
+  if(raw.seq.doc===undefined) raw.seq.doc = 0;
   raw.empresas.forEach(e=>{ if(e.responsavelFinanceiroId===undefined) e.responsavelFinanceiroId = ''; });
   if(!raw.estoque) raw.estoque = [];
   raw.empresas.forEach(e=>{
@@ -500,6 +504,18 @@ function fmtDate(iso){ if(!iso) return '—'; const d=new Date(iso); return d.to
 function fmtQty(n){ n = Number(n)||0; return n.toLocaleString('pt-BR',{minimumFractionDigits:0, maximumFractionDigits:3}); }
 function fmtDateTime(iso){ const d=new Date(iso); return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); }
 function todayISO(){ return new Date().toISOString(); }
+function nextNumeroDoc(){
+  const d = cur();
+  let max = d.seq.doc||0;
+  [...d.pedidos, ...d.vendas].forEach(x=>{ const m = /(\d+)\s*$/.exec(x.numero||''); if(m) max = Math.max(max, parseInt(m[1],10)); });
+  d.seq.doc = max+1;
+  return (ws==='etiquetag'?'ET':'VM')+'-'+String(max+1).padStart(4,'0');
+}
+function proximoNumeroDocPreview(){
+  const d = cur(); let max = d.seq.doc||0;
+  [...d.pedidos, ...d.vendas].forEach(x=>{ const m = /(\d+)\s*$/.exec(x.numero||''); if(m) max = Math.max(max, parseInt(m[1],10)); });
+  return max+1;
+}
 function nextCode(prefix, key){ const n = cur().seq[key]||1; cur().seq[key] = n+1; return prefix+'-'+String(n).padStart(4,'0'); }
 function itemCodeInfo(tipo){
   if(ws==='etiquetag'){ if(tipo==='TagMP') return {prefix:'TM', key:'tm'}; if(tipo==='Tag') return {prefix:'TG', key:'tg'}; return {prefix:'RB', key:'rb'}; }
@@ -628,7 +644,7 @@ function renderWsBar(){
 }
 function switchWs(newWs){
   if(ws===newWs) return;
-  ws = newWs; document.body.className = 'ws-'+ws; section = 'dashboard'; estoqueFiltro='todos'; financeiroEmpresaSelecionada=''; fechamentoMesSelecionado=''; buscaEstoque=''; buscaPedidos=''; buscaVendas='';
+  ws = newWs; document.body.className = 'ws-'+ws; section = 'dashboard'; estoqueFiltro='todos'; financeiroEmpresaSelecionada=''; financeiroAba='resumo'; buscaEstoque=''; buscaPedidos=''; buscaVendas='';
   renderAll();
 }
 
@@ -642,6 +658,7 @@ function navItems(){
   if(!isEtq) base.push({id:'catalogo', label:'Catálogo', icon:'M4 4h16v16H4zM4 10h16M10 10v10'});
   base.push(
     {id:'pedidos', label:'Pedidos', icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-5 8l2 2 4-4'});
+  if(isEtq) base.push({id:'insumos', label:'Entrada de Insumo', icon:'M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3'});
   if(isEtq) base.push({id:'fabricacao', label:'Fabricação', icon:'M12 2l2 5h5l-4 4 1.5 5.5L12 13l-4.5 3.5L9 11 5 7h5z'});
   if(isEtq) base.push({id:'producao', label:'Produção', icon:'M12 2a5 5 0 015 5c0 1.6-.8 3-2 3.9V13h-6v-2.1c-1.2-.9-2-2.3-2-3.9a5 5 0 015-5zM9 17h6v2H9zM10 21h4'});
   base.push(
@@ -707,11 +724,14 @@ function renderAll(){
   else if(section==='estoque'){ setTopbar('Estoque', isEtq ? 'Visualização de matéria-prima e produtos prontos (somente leitura)' : 'Itens disponíveis para venda',
     (isEtq ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
        ${searchBoxHtml('buscaEstoqueInput', buscaEstoque, 'Buscar por nome ou código...', 'setBuscaEstoque')}
+       <button class="btn btn-accent" onclick="openAjusteEstoqueModal()">${iconAdjust()} Ajuste de estoque</button>
        <button class="btn btn-ghost" onclick="printEstoque('materiaprima')">${iconPrint()} Imprimir matéria-prima</button>
        <button class="btn btn-ghost" onclick="printEstoque('prontos')">${iconPrint()} Imprimir produtos prontos</button></div>`
      : `<div style="display:flex;gap:8px;align-items:center;">${searchBoxHtml('buscaEstoqueInput', buscaEstoque, 'Buscar por nome ou código...', 'setBuscaEstoque')}<button class="btn btn-ghost" onclick="printEstoque('todos')">${iconPrint()} Imprimir estoque</button>
+     <button class="btn btn-ghost" onclick="openAjusteEstoqueModal()">${iconAdjust()} Ajuste de estoque</button>
      <button class="btn btn-accent" onclick="openEstoqueForm()">${iconPlus()} Novo item</button></div>`));
-    c.innerHTML = renderEstoque(); }
+    c.innerHTML = renderEstoque() + renderAjustesPanel(); }
+  else if(section==='insumos'){ setTopbar('Entrada de Insumo','Registre a compra de ribbons, tags e etiquetas já cadastrados', ''); c.innerHTML = renderEntradasInsumo(); }
   else if(section==='catalogo'){ setTopbar('Catálogo', 'Vitrine visual dos produtos, com fotos',
     `<button class="btn btn-ghost" onclick="printCatalogo()">${iconPrint()} Imprimir catálogo</button>`); c.innerHTML = renderCatalogo(); }
   else if(section==='pedidos'){ setTopbar('Pedidos','Pedidos de clientes, antes da venda',
@@ -1516,6 +1536,7 @@ function openEstoqueForm(id){
       ${ribbonsCatalogo.map(r=>`<option value="${r.id}" ${it.ribbonId===r.id?'selected':''}>${esc(r.nome)} (${esc(r.tipoRibbon)})</option>`).join('')}
     </select></div>
     <div id="composicaoProntoFields"></div>
+    <div id="custoLucroPronto" style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0;font-size:13px;"></div>
     <p class="hint">Normalmente este produto é gerado automaticamente pela ação "Produzir". Use este formulário para ajustes manuais. A descrição, numeração e preço vêm do cadastro em Modelos.</p>
     </div>` : '';
 
@@ -1551,16 +1572,16 @@ function openEstoqueForm(id){
       <div class="modal-body">
         ${typeSelector}
         <div class="field" id="nomeFieldWrap" style="display:${(tipoAtualNorm==='Tag'||tipoAtualNorm==='TagMP')?'none':'block'}"><label>Nome</label><input ${(tipoAtualNorm==='Tag'||tipoAtualNorm==='TagMP')?'':'required'} id="f_nome" list="${(isEtq&&tipoAtualNorm==='Ribbon')?'ribbonNomesList':''}" value="${esc(it.nome)}" placeholder="${isEtq?'Ex.: Ribbon preto 110mm / Tag 35x60':'Ex.: Camiseta branca'}" ${(isEtq&&tipoAtualNorm==='Ribbon')?'oninput="preencherTipoPorDescricaoRibbon(this.value)"':''}></div>
-        ${isEtq ? `<datalist id="ribbonNomesList">${(d.ribbonDescricoes||[]).map(r=>`<option value="${esc(r.nome)}">`).join('')}</datalist>` : ''}
+        ${isEtq ? `<datalist id="ribbonNomesList">${[...new Set([...d.estoque.filter(x=>x.tipo==='Ribbon').map(x=>x.nome), ...(d.ribbonDescricoes||[]).map(r=>r.nome)])].map(n=>`<option value="${esc(n)}">`).join('')}</datalist>` : ''}
         ${ribbonFields}${tagMpFields}${tagProntoFields}${outroTipoFields}${vimatsFields}
         <div class="field-row3">
-          <div class="field"><label id="qtyLabel">${qtyLabelTxt}</label><input required type="number" step="0.001" min="0" id="f_quantidade" value="${(isEtq&&tipoAtualNorm==='TagMP')?tagEtiquetasDisponiveis(it):it.quantidade}"></div>
+          <div class="field"><label id="qtyLabel">${qtyLabelTxt}</label><input required type="number" step="0.001" min="0" id="f_quantidade" oninput="atualizarCustoLucroPronto()" value="${(isEtq&&tipoAtualNorm==='TagMP')?tagEtiquetasDisponiveis(it):it.quantidade}"></div>
           <div class="field"><label>Unidade</label>${(isEtq && tipoAtualNorm!=='Outro') ? `<input id="f_unidade" value="${unidadeDefault}" readonly>` : `<input list="unidadesList" id="f_unidade" value="${esc(unidadeDefault)}">`}</div>
           <div class="field"><label>Estoque mínimo</label><input type="number" step="0.001" min="0" id="f_min" value="${it.estoqueMinimo}"></div>
         </div>
         <div class="field-row">
           <div class="field" id="custoWrap" style="display:${showCusto?'block':'none'}"><label id="custoLabel">${custoLabelTxt}</label><input type="number" step="0.001" min="0" id="f_custo" value="${it.custo}" oninput="updatePricingPreview()"></div>
-          <div class="field" id="precoWrap" style="display:${showPreco?'block':'none'}"><label id="precoLabel">${precoLabelTxt}</label><input type="number" step="0.001" min="0" id="f_preco" value="${it.preco}"></div>
+          <div class="field" id="precoWrap" style="display:${showPreco?'block':'none'}"><label id="precoLabel">${precoLabelTxt}</label><input type="number" step="0.001" min="0" id="f_preco" oninput="atualizarCustoLucroPronto()" value="${it.preco}"></div>
         </div>
         <datalist id="unidadesList"><option value="un"><option value="kg"><option value="g"><option value="l"><option value="ml"><option value="m"><option value="cx"><option value="pct"></datalist>
       </div>
@@ -1801,7 +1822,19 @@ function renderPricingSectionVisibility(tipo){
   if(margemField) margemField.style.display = show;
   if(usarBtn) usarBtn.style.display = tipo==='Tag' ? 'inline-block' : 'none';
 }
+function atualizarCustoLucroPronto(){
+  const el = document.getElementById('custoLucroPronto'); if(!el) return;
+  const g = id => { const x = document.getElementById(id); return x ? (parseFloat(x.value)||0) : 0; };
+  const qtd = g('f_quantidade'), custoUn = g('f_custo'), precoMilheiro = g('f_preco');
+  const custoTotal = qtd*custoUn, venda = qtd/1000*precoMilheiro, lucro = venda-custoTotal;
+  const margem = venda>0 ? lucro/venda*100 : 0;
+  el.innerHTML = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin-bottom:6px;">Custo e lucro deste lote</div>
+    <div>Custo (capital de giro): <strong class="mono">${fmtMoney(custoTotal)}</strong></div>
+    <div>Valor de venda: <strong class="mono">${fmtMoney(venda)}</strong></div>
+    <div>Lucro previsto: <strong class="mono" style="color:${lucro>=0?'#2E7D4F':'#B23A3A'};">${fmtMoney(lucro)}</strong> <span class="subtle">(${margem.toFixed(1)}% sobre a venda)</span></div>`;
+}
 function updatePricingPreview(){
+  atualizarCustoLucroPronto();
   const previewEl = document.getElementById('pricingPreview');
   if(!previewEl) return;
   const custoEl = document.getElementById('f_custo');
@@ -2131,6 +2164,91 @@ function buscarPorCodigoBarras(){
       ${itensEncontrados.map(it=>`<button type="button" class="btn btn-ghost" style="justify-content:flex-start;" onclick="pararScannerCamera();closeModal();openAjusteModal('${it.id}')">${esc(it.codigo)} — ${esc(tagFullLabel(it))} (${fmtQty(it.quantidade)} ${esc(it.unidade)})</button>`).join('')}
     </div>`;
 }
+let entradaAba = 'nova';
+function setEntradaAba(a){ entradaAba = a; renderAll(); }
+function tipoInsumoKey(it){ if(it.tipo==='Ribbon') return 'Ribbon'; if(it.tipo==='TagMP') return it.categoriaTag==='Composição' ? 'Composicao' : 'Tag'; return 'Outro'; }
+function tipoInsumoNome(it){
+  const k = tipoInsumoKey(it);
+  if(k==='Ribbon') return 'Ribbon '+(it.tipoRibbon||'');
+  if(k==='Composicao') return 'Etiqueta de Composição';
+  if(k==='Tag') return 'Tag';
+  return it.outroTipo || 'Outro material';
+}
+function materialInsumoLabel(it){
+  const tam = tamanhoObj(it.tamanhoId);
+  let l = it.nome;
+  if(tam && tam.dimensao && !String(it.nome).includes(tam.dimensao)) l += ' ('+tam.dimensao+')';
+  if(it.tipo==='Ribbon' && it.metrosPorRolo) l += ' · '+fmtQty(it.metrosPorRolo)+'m/rolo';
+  return l;
+}
+function filtrarMateriaisEntrada(){
+  const tipo = document.getElementById('f_entradatipo').value;
+  const sel = document.getElementById('f_entradamaterial');
+  const itens = cur().estoque.filter(it=>it.tipo!=='Tag' && (!tipo || tipoInsumoKey(it)===tipo)).sort((a,b)=>a.nome.localeCompare(b.nome));
+  sel.innerHTML = '<option value="">Selecione o material</option>' + itens.map(it=>`<option value="${it.id}">${esc(materialInsumoLabel(it))} (${esc(it.codigo)})</option>`).join('');
+  document.getElementById('camposEntradaInsumo').innerHTML = '';
+}
+function renderEntradasInsumo(){
+  const d = cur();
+  const lista = [...(d.compras||[])].sort((a,b)=>new Date(b.data)-new Date(a.data));
+  const abas = `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+    <button class="btn btn-sm ${entradaAba==='nova'?'btn-accent':'btn-ghost'}" onclick="setEntradaAba('nova')">Nova entrada</button>
+    <button class="btn btn-sm ${entradaAba==='lista'?'btn-accent':'btn-ghost'}" onclick="setEntradaAba('lista')">Últimas entradas (${lista.length})</button></div>`;
+  if(entradaAba==='lista'){
+    return `<div class="panel"><div class="panel-head"><div><h3>Últimas entradas de insumo</h3><p>Mais recentes primeiro. Use a impressora para emitir o comprovante de cada entrada.</p></div>
+      <button class="btn btn-ghost btn-sm" onclick="printEntradasLista()">${iconPrint()} Imprimir lista</button></div>
+      <div style="padding:14px 18px;">${abas}
+      ${lista.length ? `<table><thead><tr><th>Nº</th><th>Data</th><th>Tipo</th><th>Material</th><th>Quantidade</th><th>Valor</th><th></th></tr></thead>
+      <tbody>${lista.slice(0,60).map(c=>`<tr><td><span class="code-tag">${esc(c.numero||'—')}</span></td><td>${fmtDate(c.data)}</td><td>${esc(c.tipoNome||'—')}</td><td>${esc(c.descricao||c.itemNome)}</td><td class="mono">${esc(c.qtdTexto||(fmtQty(c.quantidade)+' '+c.unidade))}</td><td class="mono">${fmtMoney(c.valor)}</td>
+        <td><div class="row-actions"><button class="icon-btn" title="Imprimir comprovante" onclick="printEntradaInsumo('${c.id}')">${iconPrint()}</button><button class="icon-btn" title="Editar" onclick="abrirEditarEntradaInsumo('${c.id}')">${iconEdit()}</button></div></td></tr>`).join('')}</tbody></table>`
+      : `<div class="empty" style="padding:16px;"><p>Nenhuma entrada registrada ainda.</p></div>`}
+      </div></div>`;
+  }
+  const itens = d.estoque.filter(it=>it.tipo!=='Tag').sort((a,b)=>a.nome.localeCompare(b.nome));
+  return `<div class="panel"><div class="panel-head"><div><h3>Nova entrada de insumo</h3><p>Selecione o tipo e o material já cadastrado, informe a quantidade e o valor da compra.</p></div>
+    <button class="btn btn-ghost btn-sm" onclick="abrirBuscaCodigoBarrasModal()">${iconBox()} Por código de barras</button></div>
+    <div style="padding:14px 18px;">${abas}
+    ${itens.length ? `
+      <div class="field"><label>Tipo de material</label><select id="f_entradatipo" onchange="filtrarMateriaisEntrada()">
+        <option value="">Todos os tipos</option><option value="Ribbon">Ribbon</option><option value="Tag">Tag</option><option value="Composicao">Etiqueta de Composição</option><option value="Outro">Outros materiais</option></select></div>
+      <div class="field"><label>Material (descrição / tamanho)</label><select id="f_entradamaterial" onchange="atualizarCamposEntradaInsumo()">
+        <option value="">Selecione o material</option>
+        ${itens.map(it=>`<option value="${it.id}">${esc(materialInsumoLabel(it))} (${esc(it.codigo)})</option>`).join('')}</select></div>
+      <div id="camposEntradaInsumo"></div>
+      <button type="button" class="btn btn-accent" onclick="registrarEntradaInsumo()" style="margin-top:8px;">${iconCheck()} Registrar entrada</button>`
+    : `<div class="empty" style="padding:16px;"><p>Cadastre os materiais primeiro em Cadastros &gt; Cadastro de Materiais.</p></div>`}
+    </div></div>`;
+}
+function comprovanteEntradaHtml(c){
+  return `<tr><td>${esc(c.numero||'—')}</td><td>${fmtDate(c.data)}</td><td>${esc(c.tipoNome||'—')}</td><td>${esc(c.descricao||c.itemNome)}</td><td>${esc(c.qtdTexto||(fmtQty(c.quantidade)+' '+c.unidade))}</td><td>${fmtMoney(c.valor)}</td></tr>`;
+}
+function printEntradaInsumo(id){
+  const c = (cur().compras||[]).find(x=>x.id===id); if(!c) return;
+  const html = `<div class="doc">${docHeadHtml('Comprovante de Entrada de Insumo', c.numero||'')}
+    <table><tbody>
+      <tr><td style="font-weight:600;">Data</td><td>${fmtDate(c.data)}</td></tr>
+      <tr><td style="font-weight:600;">Tipo</td><td>${esc(c.tipoNome||'—')}</td></tr>
+      <tr><td style="font-weight:600;">Material</td><td>${esc(c.descricao||c.itemNome)}</td></tr>
+      <tr><td style="font-weight:600;">Quantidade</td><td>${esc(c.qtdTexto||(fmtQty(c.quantidade)+' '+c.unidade))}</td></tr>
+      <tr><td style="font-weight:600;">Valor da compra</td><td>${fmtMoney(c.valor)}</td></tr>
+      ${c.motivo?`<tr><td style="font-weight:600;">Observação</td><td>${esc(c.motivo)}</td></tr>`:''}
+      ${c.criadoPor?`<tr><td style="font-weight:600;">Registrado por</td><td>${esc(c.criadoPor)}</td></tr>`:''}
+    </tbody></table>
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+  const linhas = ['Data: '+fmtDate(c.data), 'Tipo: '+(c.tipoNome||'-'), 'Material: '+(c.descricao||c.itemNome), 'Quantidade: '+(c.qtdTexto||(fmtQty(c.quantidade)+' '+c.unidade))];
+  if(c.motivo) linhas.push('Obs: '+c.motivo);
+  printDocument(html, buildReceiptText('Entrada de Insumo', c.numero||'', linhas, [], ['Valor da compra: '+fmtMoney(c.valor)]));
+}
+function printEntradasLista(){
+  const lista = [...(cur().compras||[])].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,60);
+  const total = lista.reduce((s,c)=>s+(c.valor||0),0);
+  const html = `<div class="doc">${docHeadHtml('Entradas de Insumo · '+WS_META[ws].label, 'Últimas '+lista.length)}
+    <table><thead><tr><th>Nº</th><th>Data</th><th>Tipo</th><th>Material</th><th>Quantidade</th><th>Valor</th></tr></thead><tbody>${lista.map(comprovanteEntradaHtml).join('')}</tbody></table>
+    <div class="doc-total"><div class="grand">Total: ${fmtMoney(total)}</div></div>
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+  const linhas = lista.map(c=>(c.numero||'-')+' '+fmtDate(c.data)+' '+(c.descricao||c.itemNome)+' - '+(c.qtdTexto||(fmtQty(c.quantidade)+' '+c.unidade))+' - '+fmtMoney(c.valor));
+  printDocument(html, buildReceiptText('Entradas de Insumo', '', linhas, [], ['Total: '+fmtMoney(total)]));
+}
 function atualizarCamposEntradaInsumo(){
   const wrap = document.getElementById('camposEntradaInsumo');
   const sel = document.getElementById('f_entradamaterial');
@@ -2150,6 +2268,12 @@ function atualizarCamposEntradaInsumo(){
       ? `${fmtQty(item.quantidade)} rolos${upr>0?' ('+fmtQty(item.quantidade*upr)+' un.)':''}`
       : `${fmtQty(item.quantidade)} ${esc(item.unidade)}`;
   wrap.innerHTML = `
+    <div style="border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;">
+      <div><span class="subtle">Tipo:</span> <strong>${esc(tipoInsumoNome(item))}</strong></div>
+      <div><span class="subtle">Descrição:</span> <strong>${esc(item.nome)}</strong></div>
+      ${tam?`<div><span class="subtle">Tamanho:</span> <strong>${esc(tam.dimensao||tam.nome)}</strong></div>`:''}
+      ${isRibbon?`<div><span class="subtle">Rolo:</span> <strong>${fmtQty(metrosPorRolo)} m</strong></div>`:''}
+    </div>
     <p class="hint">Estoque atual: <strong class="mono">${estoqueAtualTxt}</strong></p>
     ${temConversao ? `
     <div class="field"><label>Registrar em</label>
@@ -2160,7 +2284,7 @@ function atualizarCamposEntradaInsumo(){
     <div class="field"><label>Quantidade</label><input required type="number" step="0.001" min="0.001" id="f_entradaqtd" placeholder="0">
       <p class="hint">Ex.: 3 rolos de 300 = 900 ${unidadeBase} — o sistema calcula sozinho.</p></div>`
     : `<div class="field"><label>Quantidade (${esc(item.unidade)})</label><input required type="number" step="0.001" min="0.001" id="f_entradaqtd" placeholder="0"></div>`}
-    <div class="field"><label>Valor gasto nesta compra (R$) — opcional</label><input type="number" step="0.01" min="0" id="f_entradavalor" placeholder="Ex: 150.00"></div>
+    <div class="field"><label>Valor do produto comprado (R$)</label><input type="number" step="0.01" min="0" id="f_entradavalor" placeholder="Ex: 150.00"></div>
     <div class="field"><label>Motivo/observação (opcional)</label><input id="f_entradamotivo" placeholder="Ex.: compra fornecedor X"></div>
   `;
 }
@@ -2187,9 +2311,65 @@ function registrarEntradaInsumo(){
   const motivo = (document.getElementById('f_entradamotivo')||{}).value.trim()||'';
   item.quantidade += qtd;
   if(!d.compras) d.compras = [];
-  d.compras.push({ id: uid(), data: todayISO(), itemId: item.id, itemNome: item.nome, quantidade: qtd, unidade: item.unidade, valor, motivo });
-  saveWS(); renderAll();
+  const unidadeSel2 = document.querySelector('input[name="f_entradaunidade"]:checked');
+  const qtdDigitada = parseFloat(qtdEl.value)||0;
+  const qtdTexto = (unidadeSel2 && unidadeSel2.value==='rolo') ? (fmtQty(qtdDigitada)+' rolo(s) = '+fmtQty(qtd)+' '+item.unidade) : (fmtQty(qtd)+' '+item.unidade);
+  const compra = { id: uid(), numero: nextCode('EN','en'), data: todayISO(), itemId: item.id, itemNome: item.nome, tipoNome: tipoInsumoNome(item), descricao: materialInsumoLabel(item), quantidade: qtd, unidade: item.unidade, qtdTexto, valor, motivo, criadoPor: usuarioAtual?usuarioAtual.nome:'' };
+  d.compras.push(compra);
+  saveWS(); entradaAba = 'lista'; renderAll();
   showToast('Entrada registrada com sucesso.', 'good');
+  if(confirm('Entrada '+compra.numero+' registrada. Imprimir o comprovante agora?')) printEntradaInsumo(compra.id);
+}
+function openAjusteEstoqueModal(){
+  const itens = [...cur().estoque].sort((a,b)=>a.nome.localeCompare(b.nome));
+  openModal(`
+    <div class="modal-head"><h3>Ajuste de estoque</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Use na conferência de estoque quando a quantidade real não bate com o sistema (perda, avaria ou lançamento esquecido). Não é compra, por isso não tem valor.</p>
+      <div class="field"><label>Material</label><select id="f_ajustematerial" onchange="atualizarCamposAjusteEstoque()">
+        <option value="">Selecione o material</option>
+        ${itens.map(it=>`<option value="${it.id}">${esc(tagIdentificacaoCompleta(it)||it.nome)} (${esc(it.codigo)})</option>`).join('')}
+      </select></div>
+      <div id="camposAjusteEstoque"></div>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-accent" onclick="registrarAjusteEstoque()">${iconCheck()} Registrar ajuste</button></div>`);
+}
+function renderAjustesPanel(){
+  const d = cur();
+  const lista = [...(d.ajustesEstoque||[])].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,40);
+  return collapsiblePanel('estoque-ajustes', 'Ajustes de estoque registrados', lista.length+' registro(s) — conferências, perdas e correções',
+    lista.length ? `<button class="btn btn-ghost btn-sm" onclick="printAjustesLista()">${iconPrint()} Imprimir lista</button>` : '',
+    lista.length ? `<table><thead><tr><th>Nº</th><th>Data</th><th>Material</th><th>Tipo</th><th>Quantidade</th><th>Antes → Depois</th><th>Motivo</th><th></th></tr></thead>
+    <tbody>${lista.map(a=>`<tr><td><span class="code-tag">${esc(a.numero||'—')}</span></td><td>${fmtDate(a.data)}</td><td>${esc(a.descricao||a.itemNome)}</td><td>${a.tipo==='entrada'?'Entrada':'Saída'}</td><td class="mono">${fmtQty(a.quantidade)} ${esc(a.unidade)}</td><td class="mono">${a.qtdAntes!==undefined?fmtQty(a.qtdAntes)+' → '+fmtQty(a.qtdDepois):'—'}</td><td>${esc(a.motivo||'—')}</td>
+      <td><div class="row-actions"><button class="icon-btn" title="Imprimir comprovante" onclick="printAjusteEstoque('${a.id}')">${iconPrint()}</button><button class="icon-btn" title="Editar" onclick="abrirEditarAjusteEstoque('${a.id}')">${iconEdit()}</button></div></td></tr>`).join('')}</tbody></table>`
+    : `<div class="empty" style="padding:16px;"><p>Nenhum ajuste registrado ainda. Use o botão "Ajuste de estoque".</p></div>`);
+}
+function printAjusteEstoque(id){
+  const a = (cur().ajustesEstoque||[]).find(x=>x.id===id); if(!a) return;
+  const html = `<div class="doc">${docHeadHtml('Comprovante de Ajuste de Estoque', a.numero||'')}
+    <table><tbody>
+      <tr><td style="font-weight:600;">Data</td><td>${fmtDateTime(a.data)}</td></tr>
+      <tr><td style="font-weight:600;">Material</td><td>${esc(a.descricao||a.itemNome)}</td></tr>
+      <tr><td style="font-weight:600;">Tipo de ajuste</td><td>${a.tipo==='entrada'?'Entrada (aumento)':'Saída (redução)'}</td></tr>
+      <tr><td style="font-weight:600;">Quantidade ajustada</td><td>${fmtQty(a.quantidade)} ${esc(a.unidade)}</td></tr>
+      ${a.qtdAntes!==undefined?`<tr><td style="font-weight:600;">Estoque antes → depois</td><td>${fmtQty(a.qtdAntes)} → ${fmtQty(a.qtdDepois)} ${esc(a.unidade)}</td></tr>`:''}
+      <tr><td style="font-weight:600;">Motivo</td><td>${esc(a.motivo||'—')}</td></tr>
+      ${a.criadoPor?`<tr><td style="font-weight:600;">Registrado por</td><td>${esc(a.criadoPor)}</td></tr>`:''}
+    </tbody></table>
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+  const linhas = ['Data: '+fmtDate(a.data), 'Material: '+(a.descricao||a.itemNome), 'Tipo: '+(a.tipo==='entrada'?'Entrada':'Saida'), 'Quantidade: '+fmtQty(a.quantidade)+' '+a.unidade];
+  if(a.qtdAntes!==undefined) linhas.push('Antes/Depois: '+fmtQty(a.qtdAntes)+' -> '+fmtQty(a.qtdDepois));
+  linhas.push('Motivo: '+(a.motivo||'-'));
+  printDocument(html, buildReceiptText('Ajuste de Estoque', a.numero||'', linhas, [], []));
+}
+function printAjustesLista(){
+  const lista = [...(cur().ajustesEstoque||[])].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,40);
+  const html = `<div class="doc">${docHeadHtml('Ajustes de Estoque · '+WS_META[ws].label, 'Últimos '+lista.length)}
+    <table><thead><tr><th>Nº</th><th>Data</th><th>Material</th><th>Tipo</th><th>Qtd</th><th>Antes → Depois</th><th>Motivo</th></tr></thead>
+    <tbody>${lista.map(a=>`<tr><td>${esc(a.numero||'—')}</td><td>${fmtDate(a.data)}</td><td>${esc(a.descricao||a.itemNome)}</td><td>${a.tipo==='entrada'?'Entrada':'Saída'}</td><td>${fmtQty(a.quantidade)} ${esc(a.unidade)}</td><td>${a.qtdAntes!==undefined?fmtQty(a.qtdAntes)+' → '+fmtQty(a.qtdDepois):'—'}</td><td>${esc(a.motivo||'—')}</td></tr>`).join('')}</tbody></table>
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+  const linhas = lista.map(a=>(a.numero||'-')+' '+fmtDate(a.data)+' '+(a.descricao||a.itemNome)+' '+(a.tipo==='entrada'?'+':'-')+fmtQty(a.quantidade)+' '+a.unidade+(a.motivo?' ('+a.motivo+')':''));
+  printDocument(html, buildReceiptText('Ajustes de Estoque', '', linhas, [], []));
 }
 function atualizarCamposAjusteEstoque(){
   const wrap = document.getElementById('camposAjusteEstoque');
@@ -2246,11 +2426,14 @@ function registrarAjusteEstoque(){
   }
   if(tipo==='saida' && qtd>item.quantidade){ showToast('Quantidade de saída maior que o estoque disponível.', 'bad'); return; }
   const motivo = (document.getElementById('f_ajustemotivo')||{}).value.trim()||'';
+  const qtdAntes = item.quantidade;
   item.quantidade = tipo==='entrada' ? item.quantidade+qtd : item.quantidade-qtd;
   if(!d.ajustesEstoque) d.ajustesEstoque = [];
-  d.ajustesEstoque.push({ id: uid(), data: todayISO(), itemId: item.id, itemNome: item.nome, tipo, quantidade: qtd, unidade: item.unidade, motivo });
-  saveWS(); renderAll();
+  const ajuste = { id: uid(), numero: nextCode('AJ','aj'), data: todayISO(), itemId: item.id, itemNome: item.nome, descricao: tagIdentificacaoCompleta(item)||item.nome, tipo, quantidade: qtd, unidade: item.unidade, qtdAntes, qtdDepois: item.quantidade, motivo, criadoPor: usuarioAtual?usuarioAtual.nome:'' };
+  d.ajustesEstoque.push(ajuste);
+  closeModal(); saveWS(); renderAll();
   showToast('Ajuste de estoque registrado.', 'good');
+  if(confirm('Ajuste '+ajuste.numero+' registrado. Imprimir o comprovante agora?')) printAjusteEstoque(ajuste.id);
 }
 function abrirEditarAjusteEstoque(ajusteId){
   const d = cur();
@@ -2377,7 +2560,7 @@ function openAjusteModal(id){
         <div class="field"><label>Quantidade</label><input required type="number" step="0.001" min="0.001" id="f_qtd" placeholder="0">
           <p class="hint">Ex.: 3 rolos de 300 = 900 ${unidadeBase} — o sistema calcula sozinho.</p></div>`
         : `<div class="field"><label>Quantidade (${esc(item.unidade)})</label><input required type="number" step="0.001" min="0.001" id="f_qtd" placeholder="0"></div>`}
-        ${isMateriaPrima ? `<div class="field" id="campoValorCompra"><label>Valor gasto nesta compra (R$) — opcional</label><input type="number" step="0.01" min="0" id="f_valorcompra" placeholder="Ex: 150.00">
+        ${isMateriaPrima ? `<div class="field" id="campoValorCompra"><label>Valor do produto comprado (R$)</label><input type="number" step="0.01" min="0" id="f_valorcompra" placeholder="Ex: 150.00">
           <p class="hint">Se preenchido, entra no Fechamento de Caixa (aba Financeiro) como reinvestimento em matéria-prima do mês.</p></div>` : ''}
         <div class="field"><label>Motivo (opcional)</label><input id="f_motivo" placeholder="Ex.: compra, perda, ajuste de inventário"></div>
       </div>
@@ -2696,8 +2879,8 @@ function renderTamanhos(){
   if(isEtq){
     html += collapsiblePanel('cad-empresas', 'Empresas', 'Marcas/clientes para quem você confecciona ou vende. Cada empresa pode ter suas próprias referências, recomendações e composições.',
       `<button class="btn btn-accent btn-sm" onclick="openEmpresaForm()">${iconPlus()} Novo(a) ${termEmpresa().toLowerCase()}</button>`,
-      (d.empresas||[]).length ? `<table><thead><tr><th>${termEmpresa()}</th><th>CNPJ</th><th>Referências</th><th>Recomendações</th><th>Composições</th><th></th></tr></thead>
-      <tbody>${d.empresas.map(e=>`<tr><td>${esc(e.nome)}</td><td class="mono">${esc(e.cnpj)||'—'}</td><td class="mono">${(e.referencias||[]).length}</td><td class="mono">${(e.recomendacoesPadroes||[]).length}</td><td class="mono">${(e.composicoesPadroes||[]).length}</td>
+      (d.empresas||[]).length ? `<table><thead><tr><th>${termEmpresa()}</th><th>CNPJ</th><th>Responsável financeiro</th><th>Referências</th><th>Recomendações</th><th>Composições</th><th></th></tr></thead>
+      <tbody>${d.empresas.map(e=>`<tr><td>${esc(e.nome)}</td><td class="mono">${esc(e.cnpj)||'—'}</td><td>${respFinanceiroLabel(e)}</td><td class="mono">${(e.referencias||[]).length}</td><td class="mono">${(e.recomendacoesPadroes||[]).length}</td><td class="mono">${(e.composicoesPadroes||[]).length}</td>
         <td><div class="row-actions">
           <button class="icon-btn" title="Referências" onclick="openReferenciasModal('${e.id}')">${iconTag2()}</button>
           <button class="icon-btn" title="Recomendações" onclick="openRecomendacoesEmpresaModal('${e.id}')">${iconWarn()}</button>
@@ -2709,8 +2892,8 @@ function renderTamanhos(){
   } else {
     html += collapsiblePanel('cad-empresas', 'Clientes', 'Clientes para quem você vende.',
       `<button class="btn btn-accent btn-sm" onclick="openEmpresaForm()">${iconPlus()} Novo(a) cliente</button>`,
-      (d.empresas||[]).length ? `<table><thead><tr><th>Cliente</th><th></th></tr></thead>
-      <tbody>${d.empresas.map(e=>`<tr><td>${esc(e.nome)}</td>
+      (d.empresas||[]).length ? `<table><thead><tr><th>Cliente</th><th>Responsável financeiro</th><th></th></tr></thead>
+      <tbody>${d.empresas.map(e=>`<tr><td>${esc(e.nome)}</td><td>${respFinanceiroLabel(e)}</td>
         <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openEmpresaForm('${e.id}')">${iconEdit()}</button>
         <button class="icon-btn" title="Excluir" onclick="deleteEmpresa('${e.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
       : `<div class="empty" style="padding:24px;"><p>Nenhum cliente cadastrado.</p></div>`);
@@ -2748,72 +2931,12 @@ function renderTamanhos(){
   html += collapsiblePanel('cad-modelos', isEtq?'Modelos':'Tamanhos', '',
     `<button class="btn btn-accent btn-sm" onclick="openTamanhoForm()">${iconPlus()} Novo modelo</button>`, modelosContent);
 
-  if(isEtq){
-    html += collapsiblePanel('cad-ribbondesc', 'Descrições de Ribbon', 'Nomes padrão sugeridos ao cadastrar um novo Ribbon, já com o tipo de material identificado.',
-      `<button class="btn btn-accent btn-sm" onclick="openRibbonDescForm()">${iconPlus()} Nova descrição</button>`,
-      (d.ribbonDescricoes||[]).length ? `<table><thead><tr><th>Descrição</th><th>Tipo</th><th></th></tr></thead>
-      <tbody>${d.ribbonDescricoes.map(r=>`<tr><td>${esc(r.nome)}</td><td><span class="cat-tag">${esc(r.tipo||'Cera')}</span></td>
-        <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openRibbonDescForm('${r.id}')">${iconEdit()}</button>
-        <button class="icon-btn" title="Excluir" onclick="deleteRibbonDesc('${r.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
-      : `<div class="empty" style="padding:24px;"><p>Nenhuma descrição cadastrada.</p></div>`);
-  }
-
-  html += collapsiblePanel('cad-responsaveis', 'Responsáveis Financeiros', 'Pessoas que respondem pelos débitos/pagamentos de cada empresa. Vincule uma delas no cadastro da empresa.',
-    `<button class="btn btn-accent btn-sm" onclick="openResponsavelForm()">${iconPlus()} Novo(a) responsável</button>`,
-    (d.responsaveisFinanceiros||[]).length ? `<table><thead><tr><th>Código</th><th>Nome</th><th></th></tr></thead>
-    <tbody>${d.responsaveisFinanceiros.map(r=>`<tr><td class="mono">${esc(r.codigo)}</td><td>${esc(r.nome)}</td>
-      <td><div class="row-actions"><button class="icon-btn" title="Editar" onclick="openResponsavelForm('${r.id}')">${iconEdit()}</button>
-      <button class="icon-btn" title="Excluir" onclick="deleteResponsavel('${r.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table>`
-    : `<div class="empty" style="padding:24px;"><p>Nenhum responsável cadastrado ainda.</p></div>`);
-
-  if(isEtq){
-    html += collapsiblePanel('cad-materiais', 'Cadastro de Materiais', 'Descrição, tipo e valor de compra de cada material — usado para calcular o investimento no Financeiro. A quantidade em estoque é controlada em "Entrada de Insumo", abaixo.',
-      `<div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-ghost btn-sm" onclick="openPreencherCustoZeradoModal()">${iconAdjust()} Preencher custo zerado</button><button class="btn btn-ghost btn-sm" onclick="openReajusteLoteModal()">${iconAdjust()} Reajustar preços em lote</button><button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button></div>`,
-      d.estoque.length ? materiaisAgrupadosPorDescricaoHtml(d.estoque, 'cad-materiais')
-      : `<div class="empty" style="padding:24px;"><p>Nenhum material cadastrado ainda.</p></div>`);
-
-
-    const materiaisInsumo = d.estoque.filter(it=>it.tipo!=='Tag');
-    const comprasRecentes = [...(d.compras||[])].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,25);
-    const ajustesRecentes = [...(d.ajustesEstoque||[])].sort((a,b)=>new Date(b.data)-new Date(a.data)).slice(0,25);
-    html += collapsiblePanel('cad-entradainsumo', 'Entrada de Insumo', 'Escolha um material já cadastrado e informe a quantidade recebida. Fica registrado na lista abaixo, com opção de editar se errar ou esquecer algo.',
-      `<button class="btn btn-ghost btn-sm" onclick="abrirBuscaCodigoBarrasModal()">${iconBox()} Por código de barras</button>`,
-      `<div class="field"><label>Material</label><select id="f_entradamaterial" onchange="atualizarCamposEntradaInsumo()">
-        <option value="">Selecione o material</option>
-        ${materiaisInsumo.map(it=>`<option value="${it.id}">${esc(it.nome)} (${esc(it.codigo)})</option>`).join('')}
-      </select></div>
-      <div id="camposEntradaInsumo"></div>
-      <button type="button" class="btn btn-accent btn-sm" onclick="registrarEntradaInsumo()" style="margin-top:8px;">${iconCheck()} Registrar entrada</button>
-      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line);">
-        <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin-bottom:8px;">Entradas registradas</div>
-        ${comprasRecentes.length ? `<table><thead><tr><th>Data</th><th>Material</th><th>Quantidade</th><th>Valor</th><th></th></tr></thead>
-        <tbody>${comprasRecentes.map(c=>`<tr><td>${fmtDate(c.data)}</td><td>${esc(c.itemNome)}</td><td class="mono">${fmtQty(c.quantidade)} ${esc(c.unidade)}</td><td class="mono">${fmtMoney(c.valor)}</td>
-          <td><button class="icon-btn" title="Editar esta entrada" onclick="abrirEditarEntradaInsumo('${c.id}')">${iconEdit()}</button></td></tr>`).join('')}</tbody></table>`
-        : `<div class="empty" style="padding:16px;"><p>Nenhuma entrada registrada ainda.</p></div>`}
-      </div>
-      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--line);">
-        <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin-bottom:2px;">Ajuste de Estoque</div>
-        <p class="hint" style="margin-top:0;">Use quando a quantidade real não bate com o sistema (contagem de inventário, perda, avaria) — não é uma compra, por isso não tem valor associado.</p>
-        <div class="field"><label>Material</label><select id="f_ajustematerial" onchange="atualizarCamposAjusteEstoque()">
-          <option value="">Selecione o material</option>
-          ${materiaisInsumo.map(it=>`<option value="${it.id}">${esc(it.nome)} (${esc(it.codigo)})</option>`).join('')}
-        </select></div>
-        <div id="camposAjusteEstoque"></div>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="registrarAjusteEstoque()" style="margin-top:8px;">${iconAdjust()} Registrar ajuste</button>
-        <div style="margin-top:14px;">
-          <div style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin-bottom:8px;">Ajustes de estoque registrados</div>
-          ${ajustesRecentes.length ? `<table><thead><tr><th>Data</th><th>Material</th><th>Tipo</th><th>Quantidade</th><th>Motivo</th><th></th></tr></thead>
-          <tbody>${ajustesRecentes.map(a=>`<tr><td>${fmtDate(a.data)}</td><td>${esc(a.itemNome)}</td><td>${a.tipo==='entrada'?'Entrada':'Saída'}</td><td class="mono">${fmtQty(a.quantidade)} ${esc(a.unidade)}</td><td>${esc(a.motivo||'—')}</td>
-            <td><button class="icon-btn" title="Editar este ajuste" onclick="abrirEditarAjusteEstoque('${a.id}')">${iconEdit()}</button></td></tr>`).join('')}</tbody></table>`
-          : `<div class="empty" style="padding:16px;"><p>Nenhum ajuste registrado ainda.</p></div>`}
-        </div>
-      </div>`);
-  } else {
-    html += collapsiblePanel('cad-materiais', 'Materiais cadastrados', 'Todos os itens do estoque, com edição rápida e o preço usado em pedidos/vendas.',
-      `<button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button>`,
-      d.estoque.length ? materiaisAgrupadosPorDescricaoHtml(d.estoque, 'cad-materiais')
-      : `<div class="empty" style="padding:24px;"><p>Nenhum material cadastrado ainda.</p></div>`);
-  }
+  html += collapsiblePanel('cad-materiais', isEtq?'Cadastro de Materiais':'Materiais cadastrados',
+    isEtq ? 'Ribbons, tags, etiquetas de composição e outros — todos cadastrados aqui, num só lugar (descrição, tipo, tamanho e valor). A quantidade em estoque entra pela aba "Entrada de Insumo".' : 'Todos os itens do estoque, com edição rápida e o preço usado em pedidos/vendas.',
+    isEtq ? `<div style="display:flex;gap:8px;flex-wrap:wrap;"><button class="btn btn-ghost btn-sm" onclick="openPreencherCustoZeradoModal()">${iconAdjust()} Preencher custo zerado</button><button class="btn btn-ghost btn-sm" onclick="openReajusteLoteModal()">${iconAdjust()} Reajustar preços em lote</button><button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button></div>`
+          : `<button class="btn btn-accent btn-sm" onclick="openEstoqueForm()">${iconPlus()} Novo material</button>`,
+    d.estoque.length ? materiaisAgrupadosPorDescricaoHtml(d.estoque, 'cad-materiais')
+    : `<div class="empty" style="padding:24px;"><p>Nenhum material cadastrado ainda.</p></div>`);
 
   html += collapsiblePanel('cad-pessoas', 'Pessoas', 'Quem usa o app — aparece em pedidos, vendas e produções como "criado por". Não é uma senha, só identificação.',
     `<button class="btn btn-accent btn-sm" onclick="abrirNovoUsuarioForm()">${iconPlus()} Nova pessoa</button>`,
@@ -2990,7 +3113,8 @@ let tempComposicoes = [];
 let tempCodigosBarrasModelo = [];
 function preencherTipoPorDescricaoRibbon(nomeDigitado){
   const d = cur();
-  const desc = (d.ribbonDescricoes||[]).find(r=>r.nome===nomeDigitado);
+  const rb = d.estoque.find(x=>x.tipo==='Ribbon' && x.nome===nomeDigitado && x.id!==editingId);
+  const desc = rb ? {tipo: rb.tipoRibbon} : (d.ribbonDescricoes||[]).find(r=>r.nome===nomeDigitado);
   if(!desc || !desc.tipo) return;
   const sel = document.getElementById('f_tiporibbon');
   if(sel) sel.value = desc.tipo;
@@ -3197,6 +3321,7 @@ function openEmpresaForm(id){
   const isEtq = ws==='etiquetag';
   const emp = id ? d.empresas.find(x=>x.id===id) : {nome:'', cnpj:'', responsavelFinanceiroId:''};
   const responsaveis = d.responsaveisFinanceiros||[];
+  const respAtual = emp.responsavelFinanceiroId ? responsaveis.find(r=>r.id===emp.responsavelFinanceiroId) : null;
   openModal(`
     <div class="modal-head"><h3>${id?'Editar':'Novo(a)'} ${termEmpresa().toLowerCase()}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <form onsubmit="saveEmpresa(event)">
@@ -3204,16 +3329,34 @@ function openEmpresaForm(id){
         <div class="field"><label>Nome ${isEtq?'da empresa / marca':'do cliente'}</label><input required id="f_nome" value="${esc(emp.nome)}" placeholder="${isEtq?'Ex.: Empresa X':'Ex.: Maria Silva'}"></div>
         ${isEtq ? `<div class="field"><label>CNPJ</label><input id="f_cnpj" value="${esc(emp.cnpj||'')}" placeholder="00.000.000/0001-00">
           <p class="hint">Usado na fabricação de Etiquetas de Composição para essa marca.</p></div>` : ''}
-        <div class="field"><label>Responsável financeiro</label><select id="f_respfinanceiro" onchange="if(this.value==='__new__'){abrirNovoResponsavelInline(this);}">
-          <option value="">Nenhum</option>
-          ${responsaveis.map(r=>`<option value="${r.id}" ${emp.responsavelFinanceiroId===r.id?'selected':''}>${esc(r.nome)} (${esc(r.codigo)})</option>`).join('')}
-          <option value="__new__">+ Novo responsável...</option>
-        </select>
-        <p class="hint">Pessoa que responde pelos débitos/pagamentos pendentes desta ${isEtq?'empresa':'cliente'} — aparece no Financeiro e no comprovante de débito.</p></div>
+        <div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-soft);margin-bottom:8px;">Responsável financeiro</div>
+          <div class="field-row">
+            <div class="field"><label>Nome</label><input id="f_respnome" list="respNomesList" value="${esc(respAtual?respAtual.nome:'')}" placeholder="Ex.: João da Silva" oninput="preencherCodigoResponsavel(this.value)">
+              <datalist id="respNomesList">${responsaveis.map(r=>`<option value="${esc(r.nome)}">`).join('')}</datalist></div>
+            <div class="field"><label>Código</label><input id="f_respcodigo" value="${esc(respAtual?respAtual.codigo:'')}" placeholder="Automático (RF001...)"></div>
+          </div>
+          <p class="hint" style="margin:0;">Pessoa que responde pelos débitos desta ${isEtq?'empresa':'cliente'} — aparece no Financeiro e no comprovante de débito. Deixe em branco se não houver. Se o nome já existir em outra empresa, o mesmo responsável é reaproveitado.</p>
+        </div>
         ${isEtq ? `<p class="hint">Referências, Recomendações e Composições desta marca ficam nos botões da lista de empresas, depois de salvar.</p>` : ''}
       </div>
       <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar</button></div>
     </form>`);
+}
+function respFinanceiroLabel(e){
+  const r = e.responsavelFinanceiroId ? (cur().responsaveisFinanceiros||[]).find(x=>x.id===e.responsavelFinanceiroId) : null;
+  return r ? esc(r.nome)+' <span class="mono" style="color:var(--ink-soft);">('+esc(r.codigo)+')</span>' : '—';
+}
+function proximoCodigoResponsavel(){
+  const lista = cur().responsaveisFinanceiros||[];
+  let n = lista.length+1, cod;
+  do { cod = 'RF'+String(n).padStart(3,'0'); n++; } while(lista.some(r=>r.codigo===cod));
+  return cod;
+}
+function preencherCodigoResponsavel(nome){
+  const r = (cur().responsaveisFinanceiros||[]).find(x=>x.nome.toLowerCase()===String(nome).trim().toLowerCase());
+  const el = document.getElementById('f_respcodigo');
+  if(r && el) el.value = r.codigo;
 }
 function abrirNovoResponsavelInline(sel){
   const nome = prompt('Nome do(a) novo(a) responsável financeiro:');
@@ -3248,8 +3391,17 @@ function updateRecPadraoNome(idx, value){ tempRecPadroes[idx].nome = value; }
 function saveEmpresa(e){
   e.preventDefault();
   const data = { nome: document.getElementById('f_nome').value.trim(), cnpj: document.getElementById('f_cnpj') ? document.getElementById('f_cnpj').value.trim() : '',
-    responsavelFinanceiroId: document.getElementById('f_respfinanceiro') ? document.getElementById('f_respfinanceiro').value : '' };
+    responsavelFinanceiroId: '' };
   const d = cur();
+  const respNome = (document.getElementById('f_respnome')||{value:''}).value.trim();
+  const respCod = (document.getElementById('f_respcodigo')||{value:''}).value.trim();
+  if(respNome){
+    if(!d.responsaveisFinanceiros) d.responsaveisFinanceiros = [];
+    let r = d.responsaveisFinanceiros.find(x=>x.nome.toLowerCase()===respNome.toLowerCase());
+    if(!r){ r = {id:uid(), nome:respNome, codigo: respCod || proximoCodigoResponsavel()}; d.responsaveisFinanceiros.push(r); }
+    else if(respCod) r.codigo = respCod;
+    data.responsavelFinanceiroId = r.id;
+  }
   if(!d.empresas) d.empresas = [];
   const duplicado = d.empresas.find(x=>x.id!==editingId && x.nome.toLowerCase()===data.nome.toLowerCase());
   if(duplicado && !confirm('Já existe um(a) '+termEmpresa().toLowerCase()+' chamado(a) "'+data.nome+'". Continuar mesmo assim?')) return;
@@ -3994,7 +4146,7 @@ function confirmarSalvarPedido(){
       pedido.editadoPor = usuarioAtual?usuarioAtual.nome:''; pedido.editadoEm = new Date().toISOString();
     }
   } else {
-    d.pedidos.push({ id: uid(), numero: nextCode('PD','pd'), cliente: p.clienteNome,
+    d.pedidos.push({ id: uid(), numero: nextNumeroDoc(), cliente: p.clienteNome,
       data: p.data, observacoes: p.observacoes, itens: p.itens, total: p.total, status:'Pendente',
       criadoPor: usuarioAtual?usuarioAtual.nome:'' });
   }
@@ -4027,7 +4179,7 @@ function convertPedido(id){
   if(problemas.length){ showToast(problemas.join(' · '), 'bad'); return; }
   baixarEstoqueItens(p.itens);
   const empresaMatch = (d.empresas||[]).find(emp=>emp.nome.toLowerCase()===p.cliente.toLowerCase());
-  const venda = { id: uid(), numero: nextCode('VD','vd'), pedidoId: p.id, cliente: p.cliente, empresaId: empresaMatch?empresaMatch.id:'', data: todayISO().slice(0,10),
+  const venda = { id: uid(), dataRegistro: todayISO(), numero: nextNumeroDoc(), pedidoId: p.id, cliente: p.cliente, empresaId: empresaMatch?empresaMatch.id:'', data: todayISO().slice(0,10),
     itens: p.itens, formaPagamento: 'Não informado', desconto: 0, total: p.total, status: 'Concluída', statusPagamento: 'Pendente', entregue: false };
   d.vendas.push(venda);
   p.status = 'Concluído';
@@ -4039,19 +4191,13 @@ let financeiroEmpresaSelecionada = '';
 function renderFinanceiro(){
   const d = cur();
   const vendasValidas = d.vendas.filter(v=>v.status!=='Cancelada');
-  const valorInvestidoTotal = d.estoque.reduce((s,x)=>s+valorInvestidoItem(x),0);
-  const valorProdutosProntos = d.estoque.filter(x=>x.tipo==='Tag' || (x.tipo==='Outro' && x.outroPronto)).reduce((s,x)=>s+valorInvestidoItem(x),0);
-  const valorMateriaPrima = valorInvestidoTotal - valorProdutosProntos;
-  const totalVendasGeral = vendasValidas.reduce((s,v)=>s+v.total,0);
-  let custoVendido = 0;
-  vendasValidas.forEach(v=> v.itens.forEach(it=>{
-    const prod = d.estoque.find(p=>p.id===it.produtoId);
-    if(prod) custoVendido += it.quantidade * custoUnitarioItem(prod);
-  }));
-  const lucroObtido = totalVendasGeral - custoVendido;
-  let html = financeHtml(valorInvestidoTotal, valorMateriaPrima, valorProdutosProntos, totalVendasGeral, vendasValidas.length, lucroObtido);
+  const r = calcResumoCaixa();
+  let html = financeAbasHtml();
+  if(financeiroAba==='precificacao' && ws==='etiquetag') return html + renderPrecificacaoMilheiro();
+  if(financeiroAba==='fechamentos') return html + renderFechamentoCaixa();
+  html += financeHtml(r.valorInvestidoTotal, r.valorMP, r.valorProntosCusto, r.faturamento, vendasValidas.length, r.lucroRealizado);
+  html += renderCapitalLucroPanel(r);
   html += qrPagamentoConfigHtml();
-  html += renderFechamentoCaixa();
 
   if(!vendasValidas.length){
     html += `<div class="panel"><div class="empty"><div class="glyph">◧</div><h4>Nenhuma venda registrada ainda</h4>
@@ -4097,6 +4243,7 @@ function renderFinanceiro(){
         <td><div class="row-actions">
           <button class="btn btn-ghost btn-sm" onclick="verHistoricoEmpresa('${key}')">Ver histórico</button>
           ${pendente>0?`<button class="btn btn-ghost btn-sm" title="Imprimir comprovante de débito" onclick="printComprovanteDebito('${key}')">${iconPrint()} Comprovante de débito</button>`:''}
+          ${pendente>0?`<button class="btn btn-accent btn-sm" title="Gerar PDF do débito para enviar ao cliente" onclick="abrirPdfDebitoModal('${key}')">PDF do débito</button>`:''}
         </div></td>
       </tr>`;
     }).join('')}</tbody></table>
@@ -4165,74 +4312,198 @@ function renderFinanceiro(){
   return html;
 }
 function verHistoricoEmpresa(key){ financeiroEmpresaSelecionada = key; renderAll(); }
-let fechamentoMesSelecionado = '';
-function mesAtualStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+let financeiroAba = 'resumo';
+function setFinanceiroAba(a){ financeiroAba = a; renderAll(); }
+function financeAbasHtml(){
+  const abas = [['resumo','Resumo e débitos']];
+  if(ws==='etiquetag') abas.push(['precificacao','Precificação do milheiro']);
+  abas.push(['fechamentos','Fechamento de caixa']);
+  return `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">${abas.map(([k,l])=>`<button class="btn btn-sm ${financeiroAba===k?'btn-accent':'btn-ghost'}" onclick="setFinanceiroAba('${k}')">${l}</button>`).join('')}</div>`;
+}
+function itemEhPronto(x){ return ws==='etiquetag' ? (x.tipo==='Tag' || (x.tipo==='Outro' && x.outroPronto)) : true; }
+function calcResumoCaixa(){
+  const d = cur();
+  const vendasValidas = d.vendas.filter(v=>v.status!=='Cancelada');
+  const prontos = d.estoque.filter(itemEhPronto);
+  const mps = d.estoque.filter(x=>!itemEhPronto(x));
+  const valorMP = mps.reduce((s,x)=>s+valorInvestidoItem(x),0);
+  const valorProntosCusto = prontos.reduce((s,x)=>s+valorInvestidoItem(x),0);
+  const valorProntosVenda = prontos.reduce((s,x)=>s+itemValorEstoque(x),0);
+  const faturamento = vendasValidas.reduce((s,v)=>s+v.total,0);
+  let custoVendido = 0;
+  vendasValidas.forEach(v=> v.itens.forEach(it=>{
+    const prod = d.estoque.find(p=>p.id===it.produtoId);
+    if(prod) custoVendido += it.quantidade * custoUnitarioItem(prod);
+  }));
+  const recebido = vendasValidas.reduce((s,v)=>s+(v.total-saldoAbertoVenda(v)),0);
+  const lucroRealizado = faturamento - custoVendido;
+  const capitalGiro = valorMP + valorProntosCusto;
+  return { valorInvestidoTotal: valorMP+valorProntosCusto, valorMP, valorProntosCusto, valorProntosVenda, lucroPrevistoProntos: valorProntosVenda-valorProntosCusto,
+    faturamento, custoVendido, lucroRealizado, recebido, aReceber: faturamento-recebido, capitalGiro, capitalTotal: capitalGiro+lucroRealizado };
+}
+function renderCapitalLucroPanel(r){
+  return `<div class="panel"><div class="panel-head"><div><h3>Capital de giro × Lucro</h3><p>O que é dinheiro investido no negócio e o que é lucro, separados.</p></div></div>
+    <div style="padding:14px 18px;">
+    <div class="kpi-grid">
+      <div class="kpi"><div class="kpi-bar"></div><div class="label">Capital de giro</div><div class="value">${fmtMoney(r.capitalGiro)}</div><div class="note">Matéria-prima ${fmtMoney(r.valorMP)} + prontos a custo ${fmtMoney(r.valorProntosCusto)}</div></div>
+      <div class="kpi good"><div class="kpi-bar"></div><div class="label">Lucro realizado</div><div class="value">${fmtMoney(r.lucroRealizado)}</div><div class="note">Vendas ${fmtMoney(r.faturamento)} − custo ${fmtMoney(r.custoVendido)}</div></div>
+      <div class="kpi good"><div class="kpi-bar"></div><div class="label">Lucro previsto nos prontos</div><div class="value">${fmtMoney(r.lucroPrevistoProntos)}</div><div class="note">Venda ${fmtMoney(r.valorProntosVenda)} − custo ${fmtMoney(r.valorProntosCusto)}</div></div>
+      <div class="kpi"><div class="kpi-bar"></div><div class="label">Capital total da empresa</div><div class="value">${fmtMoney(r.capitalTotal)}</div><div class="note">Capital de giro + lucro realizado · A receber: ${fmtMoney(r.aReceber)}</div></div>
+    </div></div></div>`;
+}
 function renderFechamentoCaixa(){
   const d = cur();
-  const mesRef = fechamentoMesSelecionado || mesAtualStr();
-  const [ano, mes] = mesRef.split('-').map(Number);
-  const dentroDoMes = (dataStr)=>{ const dt = new Date(dataStr); return dt.getFullYear()===ano && (dt.getMonth()+1)===mes; };
-
-  const vendasDoMes = d.vendas.filter(v=>v.status!=='Cancelada' && dentroDoMes(v.data));
-  const comprasDoMes = (d.compras||[]).filter(c=>dentroDoMes(c.data));
-  const faturamento = vendasDoMes.reduce((s,v)=>s+v.total,0);
-  const reinvestido = comprasDoMes.reduce((s,c)=>s+c.valor,0);
-  const resultado = faturamento - reinvestido;
-  const collapsed = isColapsado('fechamento-caixa');
-
-  const nomeMes = new Date(ano, mes-1, 1).toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
-  const content = `
-    <div class="field" style="max-width:220px;"><label>Mês de referência</label><input type="month" value="${mesRef}" onchange="mudarMesFechamento(this.value)"></div>
-    <div class="kpi-grid" style="margin-top:10px;">
-      <div class="kpi"><div class="kpi-bar"></div><div class="label">Faturamento do mês</div><div class="value">${fmtMoney(faturamento)}</div><div class="note">${vendasDoMes.length} venda(s)</div></div>
-      <div class="kpi alert"><div class="kpi-bar"></div><div class="label">Reinvestido em matéria-prima</div><div class="value">${fmtMoney(reinvestido)}</div><div class="note">${comprasDoMes.length} compra(s)</div></div>
-      <div class="kpi ${resultado>=0?'good':'alert'}"><div class="kpi-bar"></div><div class="label">Resultado do mês</div><div class="value">${fmtMoney(resultado)}</div><div class="note">Faturamento − reinvestimento</div></div>
-    </div>
-    <div style="margin-top:16px;">
-      <div class="subtle" style="text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:6px;">Vendas do mês</div>
-      ${vendasDoMes.length ? `<table><thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Total</th></tr></thead>
-      <tbody>${[...vendasDoMes].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(v=>`<tr><td><span class="code-tag">${esc(v.numero)}</span></td><td>${esc(v.cliente)}</td><td>${fmtDate(v.data)}</td><td class="mono">${fmtMoney(v.total)}</td></tr>`).join('')}</tbody></table>`
-      : `<div class="empty" style="padding:16px;"><p>Nenhuma venda neste mês.</p></div>`}
-    </div>
-    <div style="margin-top:16px;">
-      <div class="subtle" style="text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:6px;">Compras de matéria-prima do mês</div>
-      ${comprasDoMes.length ? `<table><thead><tr><th>Item</th><th>Data</th><th>Quantidade</th><th>Valor</th></tr></thead>
-      <tbody>${[...comprasDoMes].sort((a,b)=>new Date(b.data)-new Date(a.data)).map(c=>`<tr><td>${esc(c.itemNome)}</td><td>${fmtDate(c.data)}</td><td class="mono">${fmtQty(c.quantidade)} ${esc(c.unidade)}</td><td class="mono">${fmtMoney(c.valor)}</td></tr>`).join('')}</tbody></table>`
-      : `<div class="empty" style="padding:16px;"><p>Nenhuma compra registrada neste mês. Você pode informar o valor gasto ao registrar uma entrada de estoque.</p></div>`}
-    </div>
-    <button class="btn btn-accent" style="margin-top:16px;" onclick="printFechamentoCaixa('${mesRef}')">${iconPrint()} Imprimir relatório de fechamento</button>
-  `;
-  return collapsiblePanel('fechamento-caixa', 'Fechamento de Caixa', 'Faturamento, reinvestimento e resultado por mês — '+nomeMes, '', content);
+  const lista = [...(d.fechamentos||[])].sort((a,b)=>new Date(b.data)-new Date(a.data));
+  const r = calcResumoCaixa();
+  return `<div class="panel"><div class="panel-head"><div><h3>Fechamento de Caixa</h3><p>Manual: feche quando quiser. Cada fechamento guarda uma foto de capital, lucro e estoque naquele momento.</p></div>
+      <button class="btn btn-accent btn-sm" onclick="abrirFechamentoCaixaModal()">${iconCheck()} Fechar caixa agora</button></div>
+    <div style="padding:14px 18px;">
+      <div class="subtle" style="text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:6px;">Situação atual (ainda não fechada)</div>
+      ${resumoCaixaKpis(r)}
+      <div class="subtle" style="text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin:18px 0 6px;">Fechamentos realizados (${lista.length})</div>
+      ${lista.length ? `<div style="overflow-x:auto;"><table><thead><tr><th>Nº</th><th>Data</th><th>Capital total</th><th>Lucro</th><th>Prontos (custo)</th><th>Matéria-prima</th><th>Faturado no período</th><th></th></tr></thead>
+      <tbody>${lista.map(f=>`<tr><td><span class="code-tag">${esc(f.numero)}</span></td><td>${fmtDateTime(f.data)}${f.criadoPor?`<div class="l-sub">${esc(f.criadoPor)}</div>`:''}</td>
+        <td class="mono">${fmtMoney(f.capitalTotal)}</td><td class="mono">${fmtMoney(f.lucroRealizado)}</td><td class="mono">${fmtMoney(f.valorProntosCusto)}</td><td class="mono">${fmtMoney(f.valorMP)}</td><td class="mono">${fmtMoney(f.periodo?f.periodo.faturamento:0)}</td>
+        <td><div class="row-actions"><button class="icon-btn" title="Imprimir" onclick="printFechamentoCaixa('${f.id}')">${iconPrint()}</button><button class="icon-btn" title="Excluir" onclick="excluirFechamentoCaixa('${f.id}')">${iconTrash()}</button></div></td></tr>`).join('')}</tbody></table></div>`
+      : `<div class="empty" style="padding:16px;"><p>Nenhum fechamento ainda. Clique em "Fechar caixa agora".</p></div>`}
+    </div></div>`;
 }
-function mudarMesFechamento(valor){ fechamentoMesSelecionado = valor; renderAll(); }
-function printFechamentoCaixa(mesRef){
-  const d = cur();
-  const [ano, mes] = mesRef.split('-').map(Number);
-  const dentroDoMes = (dataStr)=>{ const dt = new Date(dataStr); return dt.getFullYear()===ano && (dt.getMonth()+1)===mes; };
-  const vendasDoMes = d.vendas.filter(v=>v.status!=='Cancelada' && dentroDoMes(v.data));
-  const comprasDoMes = (d.compras||[]).filter(c=>dentroDoMes(c.data));
-  const faturamento = vendasDoMes.reduce((s,v)=>s+v.total,0);
-  const reinvestido = comprasDoMes.reduce((s,c)=>s+c.valor,0);
-  const resultado = faturamento - reinvestido;
-  const nomeMes = new Date(ano, mes-1, 1).toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
-  const body = `
-    <table><tbody>
-      <tr><td style="font-weight:600;">Faturamento do mês</td><td>${fmtMoney(faturamento)} (${vendasDoMes.length} venda(s))</td></tr>
-      <tr><td style="font-weight:600;">Reinvestido em matéria-prima</td><td>${fmtMoney(reinvestido)} (${comprasDoMes.length} compra(s))</td></tr>
-      <tr><td style="font-weight:600;">Resultado do mês</td><td>${fmtMoney(resultado)}</td></tr>
-    </tbody></table>
-    <h3 style="font-family:'Space Grotesk';margin:16px 0 6px;">Vendas do mês</h3>
-    <table><thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Total</th></tr></thead>
-    <tbody>${vendasDoMes.map(v=>`<tr><td>${esc(v.numero)}</td><td>${esc(v.cliente)}</td><td>${fmtDate(v.data)}</td><td>${fmtMoney(v.total)}</td></tr>`).join('')||'<tr><td colspan="4">Nenhuma venda</td></tr>'}</tbody></table>
-    <h3 style="font-family:'Space Grotesk';margin:16px 0 6px;">Compras de matéria-prima do mês</h3>
-    <table><thead><tr><th>Item</th><th>Data</th><th>Quantidade</th><th>Valor</th></tr></thead>
-    <tbody>${comprasDoMes.map(c=>`<tr><td>${esc(c.itemNome)}</td><td>${fmtDate(c.data)}</td><td>${fmtQty(c.quantidade)} ${esc(c.unidade)}</td><td>${fmtMoney(c.valor)}</td></tr>`).join('')||'<tr><td colspan="4">Nenhuma compra</td></tr>'}</tbody></table>`;
-  const html = `<div class="doc">${docHeadHtml('Fechamento de Caixa · '+WS_META[ws].label, nomeMes)}${body}
+function resumoCaixaKpis(r){
+  return `<div class="kpi-grid">
+    <div class="kpi"><div class="kpi-bar"></div><div class="label">Capital total da empresa</div><div class="value">${fmtMoney(r.capitalTotal)}</div><div class="note">Giro + lucro realizado</div></div>
+    <div class="kpi good"><div class="kpi-bar"></div><div class="label">Lucro realizado</div><div class="value">${fmtMoney(r.lucroRealizado)}</div><div class="note">Vendas − custo</div></div>
+    <div class="kpi"><div class="kpi-bar"></div><div class="label">Material pronto em estoque</div><div class="value">${fmtMoney(r.valorProntosCusto)}</div><div class="note">A custo · venda prevista ${fmtMoney(r.valorProntosVenda)}</div></div>
+    <div class="kpi"><div class="kpi-bar"></div><div class="label">Matéria-prima em estoque</div><div class="value">${fmtMoney(r.valorMP)}</div><div class="note">A custo de compra</div></div>
+  </div>`;
+}
+function ultimoFechamento(){ const l=[...(cur().fechamentos||[])].sort((a,b)=>new Date(b.data)-new Date(a.data)); return l[0]||null; }
+function dadosPeriodoFechamento(){
+  const d = cur(); const ult = ultimoFechamento(); const desde = ult ? new Date(ult.data) : null;
+  const dep = x => !desde || new Date(x) > desde;
+  const vendas = d.vendas.filter(v=>v.status!=='Cancelada' && dep(v.dataRegistro||v.data));
+  const compras = (d.compras||[]).filter(c=>dep(c.data));
+  return { desde: ult ? ult.data : '', vendas: vendas.length, faturamento: vendas.reduce((s,v)=>s+v.total,0), compras: compras.length, valorCompras: compras.reduce((s,c)=>s+(c.valor||0),0) };
+}
+function abrirFechamentoCaixaModal(){
+  const r = calcResumoCaixa(); const per = dadosPeriodoFechamento();
+  openModal(`
+    <div class="modal-head"><h3>Fechar caixa</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Este fechamento registra a situação de agora${per.desde?' (período desde o último fechamento, em '+fmtDate(per.desde)+')':' (primeiro fechamento)'}.</p>
+      ${resumoCaixaKpis(r)}
+      <p class="hint">No período: ${per.vendas} venda(s) = ${fmtMoney(per.faturamento)} · ${per.compras} compra(s) de insumo = ${fmtMoney(per.valorCompras)}</p>
+      <div class="field"><label>Observação (opcional)</label><input id="f_fechobs" placeholder="Ex.: fechamento da semana"></div>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-accent" onclick="confirmarFechamentoCaixa()">${iconCheck()} Confirmar fechamento</button></div>`);
+}
+function confirmarFechamentoCaixa(){
+  const d = cur(); const r = calcResumoCaixa(); const per = dadosPeriodoFechamento();
+  if(!d.fechamentos) d.fechamentos = [];
+  const f = Object.assign({ id: uid(), numero: nextCode('FC','fc'), data: todayISO(), obs: (document.getElementById('f_fechobs')||{value:''}).value.trim(), criadoPor: usuarioAtual?usuarioAtual.nome:'', periodo: per }, r);
+  d.fechamentos.push(f);
+  closeModal(); saveWS(); renderAll();
+  showToast('Caixa fechado: '+f.numero, 'good');
+  if(confirm('Imprimir o relatório do fechamento '+f.numero+'?')) printFechamentoCaixa(f.id);
+}
+function excluirFechamentoCaixa(id){
+  if(!confirm('Excluir este fechamento de caixa?')) return;
+  cur().fechamentos = cur().fechamentos.filter(f=>f.id!==id);
+  saveWS(); renderAll();
+}
+function printFechamentoCaixa(id){
+  const f = (cur().fechamentos||[]).find(x=>x.id===id); if(!f) return;
+  const per = f.periodo||{};
+  const linhaT=(a,b)=>`<tr><td style="font-weight:600;">${a}</td><td>${b}</td></tr>`;
+  const body = `<table><tbody>
+    ${linhaT('Data do fechamento', fmtDateTime(f.data))}
+    ${f.criadoPor?linhaT('Responsável', esc(f.criadoPor)):''}
+    ${linhaT('Capital total da empresa', fmtMoney(f.capitalTotal))}
+    ${linhaT('Capital de giro (estoque a custo)', fmtMoney(f.capitalGiro))}
+    ${linhaT('Lucro realizado', fmtMoney(f.lucroRealizado))}
+    ${linhaT('Material pronto em estoque (custo)', fmtMoney(f.valorProntosCusto))}
+    ${linhaT('Material pronto em estoque (venda prevista)', fmtMoney(f.valorProntosVenda))}
+    ${linhaT('Lucro previsto nos prontos', fmtMoney(f.lucroPrevistoProntos))}
+    ${linhaT('Matéria-prima em estoque', fmtMoney(f.valorMP))}
+    ${linhaT('Total já vendido / recebido / a receber', fmtMoney(f.faturamento)+' / '+fmtMoney(f.recebido)+' / '+fmtMoney(f.aReceber))}
+    ${linhaT('No período'+(per.desde?' (desde '+fmtDate(per.desde)+')':''), (per.vendas||0)+' venda(s) = '+fmtMoney(per.faturamento||0)+' · '+(per.compras||0)+' compra(s) = '+fmtMoney(per.valorCompras||0))}
+    ${f.obs?linhaT('Observação', esc(f.obs)):''}
+  </tbody></table>`;
+  const html = `<div class="doc">${docHeadHtml('Fechamento de Caixa · '+WS_META[ws].label, f.numero)}${body}
     <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
-  const text = buildReceiptText('Fechamento de Caixa', nomeMes,
-    ['Faturamento: '+fmtMoney(faturamento), 'Reinvestido: '+fmtMoney(reinvestido), 'Resultado: '+fmtMoney(resultado)], [], []);
+  const text = buildReceiptText('Fechamento de Caixa', f.numero,
+    ['Data: '+fmtDateTime(f.data), 'Capital total: '+fmtMoney(f.capitalTotal), 'Lucro: '+fmtMoney(f.lucroRealizado), 'Prontos (custo): '+fmtMoney(f.valorProntosCusto), 'Materia-prima: '+fmtMoney(f.valorMP)], [], f.obs?['Obs: '+f.obs]:[]);
   printDocument(html, text);
 }
+
+/* ---------- Precificação do milheiro ---------- */
+function custoMedioRibbonPorMetro(tipo){
+  const l = cur().estoque.filter(x=>x.tipo==='Ribbon' && x.tipoRibbon===tipo && x.preco>0);
+  return l.length ? l.reduce((s,x)=>s+x.preco,0)/l.length : 0;
+}
+function custoTagMilheiro(t){
+  const l = cur().estoque.filter(x=>x.tipo==='TagMP' && x.tamanhoId===t.id && x.custo>0);
+  const upr = t.unidadesPorRolo||0;
+  if(!l.length || upr<=0) return 0;
+  const custoRolo = l.reduce((s,x)=>s+x.custo,0)/l.length;
+  return custoRolo/upr*1000;
+}
+function precoAtualMilheiro(t, tipo){ return t.composicao ? ((t.precosPorRibbon||{})[tipo]||0) : (t.precoMilheiro||0); }
+function linhasPrecificacao(){
+  const out = [];
+  cur().tamanhos.forEach(t=>{
+    const tipos = t.composicao ? ['Cera','Têxtil'] : ['Cera'];
+    tipos.forEach(tipo=>{
+      const custoTag = custoTagMilheiro(t);
+      const ribbonM = custoMedioRibbonPorMetro(tipo) * getConsumoMetros(t) * 1000;
+      const custo = custoTag + ribbonM;
+      const margem = ((t.margensMilheiro||{})[tipo]) ?? 30;
+      out.push({ t, tipo, custoTag, ribbonM, custo, margem, atual: precoAtualMilheiro(t,tipo) });
+    });
+  });
+  return out;
+}
+function sugeridoMilheiro(custo, margem){ return margem<100 ? custo/(1-margem/100) : 0; }
+function renderPrecificacaoMilheiro(){
+  const linhas = linhasPrecificacao();
+  const rib = ['Cera','Têxtil','Misto'].map(t=>[t, custoMedioRibbonPorMetro(t)]).filter(x=>x[1]>0);
+  if(!linhas.length) return `<div class="panel"><div class="empty" style="padding:24px;"><p>Cadastre modelos em Cadastros para precificar o milheiro.</p></div></div>`;
+  return `<div class="panel"><div class="panel-head"><div><h3>Precificação do milheiro</h3><p>Custo = etiqueta em branco (por milheiro) + ribbon gasto (metros por milheiro × custo médio do metro). Defina a margem e aplique o preço — ele passa a valer nos pedidos, vendas e produção.</p></div></div>
+    <div style="padding:14px 18px;">
+      <p class="hint" style="margin-top:0;">Custo médio do ribbon por metro: ${rib.length ? rib.map(([t,v])=>esc(t)+' '+fmtMoney3(v)).join(' · ') : 'nenhum ribbon com preço cadastrado ainda'}.</p>
+      <div style="overflow-x:auto;"><table><thead><tr><th>Modelo</th><th>Etiqueta/milheiro</th><th>Ribbon/milheiro</th><th>Custo total</th><th>Margem (%)</th><th>Preço sugerido</th><th>Preço de venda atual</th><th>Lucro/milheiro</th><th></th></tr></thead>
+      <tbody>${linhas.map((l,i)=>`<tr>
+        <td>${esc(l.t.nome)}${l.t.dimensao?' <span class="l-sub">'+esc(l.t.dimensao)+'</span>':''}${l.t.composicao?'<div class="l-sub">Ribbon '+esc(l.tipo)+'</div>':''}</td>
+        <td class="mono">${fmtMoney(l.custoTag)}</td><td class="mono">${fmtMoney(l.ribbonM)}</td><td class="mono" id="prc_custo_${i}">${fmtMoney(l.custo)}</td>
+        <td><input type="number" min="0" max="99" step="0.5" value="${l.margem}" style="width:80px;" oninput="atualizarMargemMilheiro(${i},this.value)"></td>
+        <td class="mono" id="prc_sug_${i}">${fmtMoney(sugeridoMilheiro(l.custo,l.margem))}</td>
+        <td><input type="number" min="0" step="0.01" value="${l.atual}" style="width:100px;" onchange="salvarPrecoMilheiro(${i},this.value)"></td>
+        <td class="mono" style="color:${l.atual-l.custo>=0?'inherit':'#B23A3A'};">${fmtMoney(l.atual-l.custo)}</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="aplicarPrecoSugeridoMilheiro(${i})">Usar sugerido</button></td></tr>`).join('')}</tbody></table></div>
+      ${linhas.some(l=>l.custo<=0)?`<p class="hint">Linhas com custo R$ 0,00 estão sem preço de ribbon, custo da tag em branco ou passo/consumo do modelo cadastrados.</p>`:''}
+    </div></div>`;
+}
+function atualizarMargemMilheiro(i, valor){
+  const l = linhasPrecificacao()[i]; if(!l) return;
+  const m = parseFloat(valor); const margem = isNaN(m)?0:m;
+  if(!l.t.margensMilheiro) l.t.margensMilheiro = {};
+  l.t.margensMilheiro[l.tipo] = margem;
+  const el = document.getElementById('prc_sug_'+i); if(el) el.textContent = fmtMoney(sugeridoMilheiro(l.custo, margem));
+  saveWS();
+}
+function salvarPrecoMilheiro(i, valor){
+  const l = linhasPrecificacao()[i]; if(!l) return;
+  const v = parseFloat(valor)||0;
+  if(l.t.composicao){ if(!l.t.precosPorRibbon) l.t.precosPorRibbon = {}; l.t.precosPorRibbon[l.tipo] = v; }
+  else l.t.precoMilheiro = v;
+  saveWS(); renderAll(); showToast('Preço do milheiro atualizado.', 'good');
+}
+function aplicarPrecoSugeridoMilheiro(i){
+  const l = linhasPrecificacao()[i]; if(!l) return;
+  const sug = sugeridoMilheiro(l.custo, l.margem);
+  if(sug<=0){ showToast('Sem custo para calcular o preço sugerido.', 'bad'); return; }
+  salvarPrecoMilheiro(i, sug.toFixed(2));
+}
+
 function togglePagamento(vendaId){
   const d = cur();
   const v = d.vendas.find(x=>x.id===vendaId);
@@ -4254,16 +4525,19 @@ function subToggleHeader(key, label, count){
   const collapsed = isColapsado(key);
   return `<div style="display:flex;align-items:center;gap:8px;padding:10px 4px;cursor:pointer;font-weight:600;font-size:13px;color:var(--ink-soft);border-top:1px solid var(--line-soft);" onclick="togglePanel('${key}')">${chevronIcon(collapsed)} ${esc(label)} (${count})</div>`;
 }
-function vendaTableHtml(lista){
+function numeroSeq(v){ const m = /(\d+)\s*$/.exec(v.numero||''); return m ? parseInt(m[1],10) : 0; }
+function vendaTableHtml(lista, mostrarCliente){
   if(!lista.length) return `<div class="empty" style="padding:16px;"><p>Nenhuma venda aqui.</p></div>`;
-  return `<table><thead><tr><th>Nº</th><th>Data</th><th>Itens</th><th>Total</th><th>Entregue</th><th></th></tr></thead>
+  return `<table><thead><tr><th>Nº</th>${mostrarCliente?'<th>Cliente</th>':''}<th>Data</th><th>Itens</th><th>Total</th><th>Entregue</th><th></th></tr></thead>
     <tbody>${lista.map(v=>`
       <tr>
-        <td><span class="code-tag">${esc(v.numero)}</span>${(v.criadoPor||v.canceladoPor)?`<div class="l-sub">${v.canceladoPor?'Cancelado por '+esc(v.canceladoPor):(v.criadoPor?'Criado por '+esc(v.criadoPor):'')}</div>`:''}</td><td>${fmtDate(v.data)}</td><td>${v.itens.length}</td>
+        <td><span class="code-tag">${esc(v.numero)}</span>${v.status==='Cancelada'?' '+badgeHtml('warn','Cancelada'):''}${(v.criadoPor||v.canceladoPor)?`<div class="l-sub">${v.canceladoPor?'Cancelado por '+esc(v.canceladoPor):(v.criadoPor?'Criado por '+esc(v.criadoPor):'')}</div>`:''}</td>${mostrarCliente?`<td>${esc(v.cliente)}</td>`:''}<td>${fmtDate(v.data)}</td><td>${v.itens.length}</td>
         <td class="mono">${fmtMoney(v.total)}</td>
         <td>${v.status==='Concluída'?`<button class="btn btn-sm ${v.entregue===false?'btn-ghost':'btn-accent'}" onclick="toggleEntregue('${v.id}')">${v.entregue===false?badgeHtml('warn','Não entregue'):badgeHtml('good','Entregue')}</button>`:'—'}</td>
         <td><div class="row-actions">
-          <button class="btn btn-ghost btn-sm" title="Imprimir comprovante" onclick="printVenda('${v.id}')">${iconPrint()} Imprimir</button>
+          ${v.status==='Concluída'?`<button class="btn btn-ghost btn-sm" title="Editar venda" onclick="openEditarVenda('${v.id}')">${iconEdit()} Editar</button>`:''}
+          <button class="btn btn-accent btn-sm" title="Gerar PDF do comprovante para enviar ao cliente" onclick="gerarPdfVenda('${v.id}')">PDF</button>
+          <button class="btn btn-ghost btn-sm" title="Imprimir comprovante" onclick="printVenda('${v.id}')">${iconPrint()}</button>
           ${v.status==='Concluída'?`<button class="icon-btn" title="Cancelar venda" onclick="cancelVenda('${v.id}')">${iconX()}</button>`:''}
           <button class="icon-btn" title="Excluir" onclick="deleteVenda('${v.id}')">${iconTrash()}</button>
         </div></td>
@@ -4289,22 +4563,164 @@ function renderVendas(){
     if(v.empresaId && gruposEmp[v.empresaId]) gruposEmp[v.empresaId].vendas.push(v);
     else semEmpresa.vendas.push(v);
   });
-  const grupos = Object.values(gruposEmp).sort((a,b)=>a.nome.localeCompare(b.nome));
+  const grupos = Object.values(gruposEmp).filter(g=>g.vendas.length).sort((a,b)=>a.nome.localeCompare(b.nome));
   if(semEmpresa.vendas.length) grupos.push(semEmpresa);
 
-  return grupos.map(g=>{
+  const porCliente = grupos.map(g=>{
     const concluidas = g.vendas.filter(v=>v.status==='Concluída').sort((a,b)=>new Date(b.data)-new Date(a.data));
     const canceladas = g.vendas.filter(v=>v.status==='Cancelada').sort((a,b)=>new Date(b.data)-new Date(a.data));
     const total = concluidas.reduce((s,v)=>s+v.total,0);
-    const sub = g.vendas.length ? `${concluidas.length} concluída(s) · ${canceladas.length} cancelada(s) · Total: ${fmtMoney(total)}` : 'Nenhuma venda ainda';
+    const sub = `${concluidas.length} concluída(s) · ${canceladas.length} cancelada(s) · Total: ${fmtMoney(total)}`;
     const content = `
       ${subToggleHeader('vendas-'+g.key+'-concl', 'Vendas Concluídas', concluidas.length)}
-      ${isColapsado('vendas-'+g.key+'-concl') ? '' : vendaTableHtml(concluidas)}
-      ${subToggleHeader('vendas-'+g.key+'-canc', 'Vendas Canceladas', canceladas.length)}
-      ${isColapsado('vendas-'+g.key+'-canc') ? '' : vendaTableHtml(canceladas)}
-    `;
-    return collapsiblePanel('vendas-emp-'+g.key, esc(g.nome), sub, '', content);
+      ${isColapsado('vendas-'+g.key+'-concl') ? '' : vendaTableHtml(concluidas, false)}
+      ${canceladas.length ? subToggleHeader('vendas-'+g.key+'-canc', 'Vendas Canceladas', canceladas.length) : ''}
+      ${canceladas.length && !isColapsado('vendas-'+g.key+'-canc') ? vendaTableHtml(canceladas, false) : ''}`;
+    return `<div style="margin:0 0 4px;">${collapsiblePanel('vendas-emp-'+g.key, esc(g.nome), sub, '', content)}</div>`;
   }).join('');
+
+  const sequencial = [...vendasBase].sort((a,b)=> numeroSeq(a)-numeroSeq(b) || new Date(a.data)-new Date(b.data));
+  const totalSeq = sequencial.filter(v=>v.status==='Concluída').reduce((s,v)=>s+v.total,0);
+
+  return collapsiblePanel('vendas-por-clientes', 'Vendas por Clientes', grupos.length+' pasta(s) de cliente — cada cliente com suas vendas registradas',
+      '', porCliente || `<div class="empty" style="padding:16px;"><p>Nenhuma venda encontrada.</p></div>`)
+    + collapsiblePanel('vendas-sequencial', 'Vendas Sequencial', sequencial.length+' venda(s) na ordem de registro · Total concluído: '+fmtMoney(totalSeq),
+      '', vendaTableHtml(sequencial, true));
+}
+let vendaEdicaoItens = [];
+function openEditarVenda(id){
+  const v = cur().vendas.find(x=>x.id===id);
+  if(!v || v.status==='Cancelada') return;
+  editingId = id;
+  vendaEdicaoItens = v.itens.map(i=>({...i}));
+  openModal(`
+    <div class="modal-head"><h3>Editar venda ${esc(v.numero)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <form onsubmit="salvarEdicaoVenda(event)">
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>Cliente</label><input required id="f_edcliente" list="clientesListEd" value="${esc(v.cliente)}"><datalist id="clientesListEd">${(cur().empresas||[]).map(e=>`<option value="${esc(e.nome)}">`).join('')}</datalist></div>
+          <div class="field"><label>Data</label><input required type="date" id="f_eddata" value="${esc(String(v.data).slice(0,10))}"></div>
+        </div>
+        <div class="field"><label>Itens (ajuste quantidade e preço; o estoque é corrigido automaticamente)</label><div id="edVendaItens"></div></div>
+        <div class="field-row">
+          <div class="field"><label>Forma de pagamento</label><select id="f_edpagamento">${['Dinheiro','Pix','Cartão de débito','Cartão de crédito','Boleto'].map(f=>`<option ${v.formaPagamento===f?'selected':''}>${f}</option>`).join('')}</select></div>
+          <div class="field"><label>Desconto (R$)</label><input type="number" min="0" step="0.01" id="f_eddesconto" value="${v.desconto||0}" oninput="recalcEdicaoVenda()"></div>
+        </div>
+        <div class="total-line"><span>Total</span><span id="edVendaTotal">${fmtMoney(v.total)}</span></div>
+      </div>
+      <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-accent">${iconCheck()} Salvar alterações</button></div>
+    </form>`);
+  renderEdicaoVendaItens();
+}
+function renderEdicaoVendaItens(){
+  const el = document.getElementById('edVendaItens'); if(!el) return;
+  el.innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>Item</th><th>Qtd</th><th>Preço un.</th><th>Subtotal</th><th></th></tr></thead><tbody>
+    ${vendaEdicaoItens.map((it,idx)=>`<tr><td>${esc(it.nome)}</td>
+      <td><input type="number" min="0" step="0.001" value="${it.quantidade}" style="width:90px;" oninput="atualizarEdicaoVendaItem(${idx},'quantidade',this.value)"></td>
+      <td><input type="number" min="0" step="0.0001" value="${it.precoUnit}" style="width:100px;" oninput="atualizarEdicaoVendaItem(${idx},'precoUnit',this.value)"></td>
+      <td class="mono" id="edsub_${idx}">${fmtMoney(it.quantidade*it.precoUnit)}</td>
+      <td><button type="button" class="icon-btn" title="Remover item" onclick="removerEdicaoVendaItem(${idx})">${iconX()}</button></td></tr>`).join('')}
+  </tbody></table></div>`;
+  recalcEdicaoVenda();
+}
+function atualizarEdicaoVendaItem(idx, campo, valor){
+  vendaEdicaoItens[idx][campo] = parseFloat(valor)||0;
+  const sub = document.getElementById('edsub_'+idx);
+  if(sub) sub.textContent = fmtMoney(vendaEdicaoItens[idx].quantidade*vendaEdicaoItens[idx].precoUnit);
+  recalcEdicaoVenda();
+}
+function removerEdicaoVendaItem(idx){ vendaEdicaoItens.splice(idx,1); renderEdicaoVendaItens(); }
+function recalcEdicaoVenda(){
+  const sub = vendaEdicaoItens.reduce((s,i)=>s+i.quantidade*i.precoUnit,0);
+  const desc = parseFloat((document.getElementById('f_eddesconto')||{}).value)||0;
+  const el = document.getElementById('edVendaTotal'); if(el) el.textContent = fmtMoney(Math.max(0,sub-desc));
+}
+function salvarEdicaoVenda(e){
+  e.preventDefault();
+  const d = cur();
+  const v = d.vendas.find(x=>x.id===editingId); if(!v) return;
+  const novos = vendaEdicaoItens.filter(i=>i.produtoId && i.quantidade>0);
+  if(!novos.length){ showToast('A venda precisa ter ao menos um item com quantidade.', 'bad'); return; }
+  restaurarEstoqueItens(v.itens);
+  const problemas = checkEstoqueParaItens(novos);
+  if(problemas.length){ baixarEstoqueItens(v.itens); showToast(problemas.join(' · '), 'bad'); return; }
+  baixarEstoqueItens(novos);
+  v.itens = novos.map(i=>({...i, subtotal: i.quantidade*i.precoUnit}));
+  const subtotal = v.itens.reduce((s,i)=>s+i.subtotal,0);
+  v.desconto = parseFloat(document.getElementById('f_eddesconto').value)||0;
+  v.total = Math.max(0, subtotal - v.desconto);
+  v.cliente = document.getElementById('f_edcliente').value.trim();
+  const emp = (d.empresas||[]).find(x=>x.nome.toLowerCase()===v.cliente.toLowerCase());
+  v.empresaId = emp ? emp.id : '';
+  v.data = document.getElementById('f_eddata').value;
+  v.formaPagamento = document.getElementById('f_edpagamento').value;
+  if(v.statusPagamento==='Pago') v.valorRecebido = Math.max(0, v.total - (v.descontoPagamento||0));
+  else v.valorRecebido = Math.min(v.valorRecebido||0, v.total);
+  v.editadoPor = usuarioAtual?usuarioAtual.nome:'';
+  closeModal(); saveWS(); renderAll();
+  showToast('Venda atualizada.', 'good');
+}
+async function gerarPdfVenda(id){
+  const d = cur();
+  const v = d.vendas.find(x=>x.id===id); if(!v) return;
+  let jsPDF;
+  try{ jsPDF = (await carregarJsPDF()).jsPDF; }
+  catch(e){ showToast('Sem internet para gerar o PDF. Abrindo impressão: escolha "Salvar como PDF".', 'bad'); printVenda(id); return; }
+  const L = t => String(t==null?'':t).replace(/[   ]/g,' ').replace(/[–—]/g,'-').replace(/[^\x00-\xFF]/g,'');
+  const M = n => L(fmtMoney(n));
+  const doc = new jsPDF({unit:'mm', format:'a4'});
+  const ML=15, MR=195, W=210; let y=18;
+  const em = d.empresa || {};
+  doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.text(L(em.nome||WS_META[ws].label), ML, y); y+=6;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  const meta = [em.documento, em.endereco].filter(Boolean).join(' - ');
+  if(meta){ doc.text(L(meta), ML, y); y+=5; }
+  doc.text('Emitido em '+L(fmtDate(todayISO())), MR, 18, {align:'right'});
+  y+=2; doc.setDrawColor(150); doc.line(ML,y,MR,y); y+=8;
+  doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text('Comprovante de Venda '+L(v.numero), ML, y); y+=8;
+  doc.setFontSize(10);
+  const linha=(rot,val)=>{ doc.setFont('helvetica','bold'); doc.text(rot, ML, y); doc.setFont('helvetica','normal'); doc.text(L(val), ML+32, y); y+=5; };
+  linha('Cliente:', v.cliente); linha('Data:', fmtDate(v.data)); linha('Pagamento:', v.formaPagamento||'-');
+  y+=4;
+  const cab=()=>{ doc.setFillColor(235,235,235); doc.rect(ML,y-4.5,MR-ML,7,'F'); doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.text('Material',ML+2,y); doc.text('Qtd',125,y,{align:'right'}); doc.text('Preco',156,y,{align:'right'}); doc.text('Subtotal',MR-2,y,{align:'right'}); y+=6; doc.setFont('helvetica','normal'); };
+  cab();
+  v.itens.forEach(it=>{
+    const linhas = doc.splitTextToSize(L(it.nome), 90);
+    if(y+linhas.length*4+2>275){ doc.addPage(); y=18; cab(); }
+    doc.text(linhas, ML+2, y);
+    doc.text(L(fmtQty(it.quantidade)+' '+(it.unidade||'')), 125, y, {align:'right'});
+    doc.text(M(it.precoUnit), 156, y, {align:'right'});
+    doc.text(M(it.subtotal), MR-2, y, {align:'right'});
+    y += linhas.length*4+1.5;
+  });
+  y+=3; doc.setDrawColor(60); doc.line(ML,y-2,MR,y-2);
+  const sub = v.itens.reduce((s,i)=>s+i.subtotal,0);
+  if(y>250){ doc.addPage(); y=18; }
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  if(v.desconto){ doc.text('Subtotal: '+M(sub), MR, y+3, {align:'right'}); y+=5; doc.text('Desconto: -'+M(v.desconto), MR, y+3, {align:'right'}); y+=5; }
+  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.text('TOTAL: '+M(v.total), MR, y+4, {align:'right'}); y+=9;
+  const saldo = saldoAbertoVenda(v);
+  doc.setFontSize(10);
+  if(saldo>0.005){ doc.text('Valor em aberto: '+M(saldo), MR, y+3, {align:'right'}); y+=6; }
+  else { doc.setFont('helvetica','normal'); doc.text('Situacao: PAGO', MR, y+3, {align:'right'}); y+=6; }
+  const qr = d.qrPagamento || {};
+  if(qr.foto && saldo>0.005){
+    try{
+      if(y>215){ doc.addPage(); y=18; }
+      y+=4;
+      const fmt = /^data:image\/jpe?g/i.test(qr.foto) ? 'JPEG' : 'PNG';
+      doc.addImage(qr.foto, fmt, W/2-25, y, 50, 50); y+=54;
+      if(qr.legenda){ doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text(doc.splitTextToSize(L(qr.legenda),150), W/2, y, {align:'center'}); }
+    }catch(err){ console.warn('QR no PDF falhou', err); }
+  }
+  const nomeArq = 'venda-'+L(v.numero).toLowerCase().replace(/[^a-z0-9]+/g,'-')+'-'+L(v.cliente).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'.pdf';
+  const blob = doc.output('blob');
+  try{
+    const file = new File([blob], nomeArq, {type:'application/pdf'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:'Venda '+v.numero}); return; }
+  }catch(err){ if(err && err.name==='AbortError') return; }
+  doc.save(nomeArq);
+  showToast('PDF gerado: '+nomeArq, 'good');
 }
 function deleteVenda(id){
   if(!confirm('Excluir esta venda?')) return;
@@ -4469,7 +4885,7 @@ function saveVenda(e){
   const statusPagEl = document.getElementById('f_statuspagamento');
   const totalVendaFinal = Math.max(0,subtotal-desconto);
   const statusPagInicial = statusPagEl?statusPagEl.value:'Pago';
-  const venda = { id: uid(), numero: nextCode('VD','vd'), pedidoId: null, cliente: clienteNome, empresaId: empresaMatch?empresaMatch.id:'',
+  const venda = { id: uid(), dataRegistro: todayISO(), numero: nextNumeroDoc(), pedidoId: null, cliente: clienteNome, empresaId: empresaMatch?empresaMatch.id:'',
     data: document.getElementById('f_data').value, formaPagamento: document.getElementById('f_pagamento').value,
     desconto, itens, total: totalVendaFinal, status:'Concluída', statusPagamento: statusPagInicial,
     valorRecebido: statusPagInicial==='Pago' ? totalVendaFinal : 0, descontoPagamento: 0, entregue: true,
@@ -4509,6 +4925,11 @@ function renderImpressaoConfig(){
           <label><input type="checkbox" id="f_documento" ${cfg.documento!==false?'checked':''}> CNPJ/documento e endereço da empresa</label>
         </div>
       </div>
+      <div class="field" style="margin-top:18px;max-width:320px;">
+        <label>Próximo número de pedido / venda</label>
+        <input type="number" min="1" step="1" id="f_proximonumero" value="${proximoNumeroDocPreview()}">
+        <p class="hint">Pedidos e vendas diretas compartilham a mesma sequência (${ws==='etiquetag'?'ET':'VM'}-0001, ${ws==='etiquetag'?'ET':'VM'}-0002...). Para começar de outro número, altere aqui — se já existir um número maior, a sequência continua a partir dele.</p>
+      </div>
       <button class="btn btn-accent" style="margin-top:20px;" onclick="saveImpressaoConfig()">${iconCheck()} Salvar configuração</button>
       <button class="btn btn-ghost" style="margin-top:20px;margin-left:8px;" onclick="printTeste()">${iconPrint()} Imprimir teste</button>
     </div>
@@ -4534,6 +4955,8 @@ function renderImpressaoConfig(){
   </div>`;
 }
 function saveImpressaoConfig(){
+  const pn = document.getElementById('f_proximonumero');
+  if(pn){ const n = parseInt(pn.value,10); if(n>0) cur().seq.doc = n-1; }
   cur().configImpressao = {
     formato: document.querySelector('input[name="f_formato"]:checked').value,
     assinatura: document.getElementById('f_assinatura').checked,
@@ -5081,13 +5504,143 @@ function confirmarPagamentoDebito(){
   showToast(restante>0.005 ? 'Pagamento registrado. Restam '+fmtMoney(restante)+' em aberto.' : 'Débito quitado com sucesso.', 'good');
 }
 
-function printComprovanteDebito(empresaKeys){
+
+// ===== PDF de débito por cliente =====
+function carregarJsPDF(){
+  return new Promise((res,rej)=>{
+    if(window.jspdf) return res(window.jspdf);
+    const sc=document.createElement('script');
+    sc.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    sc.onload=()=>window.jspdf?res(window.jspdf):rej(new Error('jspdf'));
+    sc.onerror=()=>rej(new Error('jspdf'));
+    document.head.appendChild(sc);
+  });
+}
+function abrirPdfDebitoModal(key){
+  const d = cur();
+  const empObj = key!=='__semempresa__' ? empresaObj(key) : null;
+  const nome = empObj ? empObj.nome : 'Cliente avulso';
+  const vendas = d.vendas.filter(v=>v.status!=='Cancelada' && saldoAbertoVenda(v)>0.005 && (v.empresaId||'__semempresa__')===key)
+    .sort((a,b)=>new Date(a.data)-new Date(b.data));
+  if(!vendas.length){ showToast('Não há débitos pendentes.', 'bad'); return; }
+  window._pdfDebitoKey = key;
+  openModal(`
+    <div class="modal-head"><h3>PDF do débito · ${esc(nome)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Marque as notas (vendas) que devem entrar no PDF.</p>
+      <label style="display:flex;gap:8px;align-items:center;margin-bottom:8px;font-weight:600;"><input type="checkbox" checked onchange="document.querySelectorAll('.f_vendapdf').forEach(c=>c.checked=this.checked);atualizarTotalPdfDebito()"> Selecionar todas</label>
+      ${vendas.map(v=>`<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line,#ddd);">
+        <input type="checkbox" class="f_vendapdf" value="${v.id}" data-saldo="${saldoAbertoVenda(v)}" checked onchange="atualizarTotalPdfDebito()">
+        <span style="flex:1;">Venda ${esc(v.numero)} · ${fmtDate(v.data)}</span>
+        <span class="mono">${fmtMoney(saldoAbertoVenda(v))}</span></label>`).join('')}
+      <p style="margin:12px 0 0;font-weight:700;">Total selecionado: <span id="pdfDebitoTotal" class="mono"></span></p>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-accent" onclick="gerarPdfDebito()">Gerar PDF</button></div>
+  `);
+  atualizarTotalPdfDebito();
+}
+function pdfDebitoIdsSelecionados(){ return Array.from(document.querySelectorAll('.f_vendapdf:checked')).map(c=>c.value); }
+function atualizarTotalPdfDebito(){
+  const t = Array.from(document.querySelectorAll('.f_vendapdf:checked')).reduce((s,c)=>s+(parseFloat(c.dataset.saldo)||0),0);
+  const el = document.getElementById('pdfDebitoTotal'); if(el) el.textContent = fmtMoney(t);
+}
+async function gerarPdfDebito(){
+  const d = cur();
+  const key = window._pdfDebitoKey;
+  const ids = pdfDebitoIdsSelecionados();
+  if(!ids.length){ showToast('Selecione ao menos uma nota.', 'bad'); return; }
+  const empObj = key!=='__semempresa__' ? empresaObj(key) : null;
+  const nome = empObj ? empObj.nome : 'Cliente avulso';
+  const vendas = d.vendas.filter(v=>ids.includes(v.id)).sort((a,b)=>new Date(a.data)-new Date(b.data));
+  const resp = (empObj && empObj.responsavelFinanceiroId) ? (d.responsaveisFinanceiros||[]).find(r=>r.id===empObj.responsavelFinanceiroId) : null;
+  let jsPDF;
+  try{ jsPDF = (await carregarJsPDF()).jsPDF; }
+  catch(e){
+    closeModal();
+    showToast('Não foi possível carregar o gerador de PDF (sem internet). Abrindo impressão: escolha "Salvar como PDF".', 'bad');
+    printComprovanteDebito(key, ids); return;
+  }
+  const L = t => String(t==null?'':t).replace(/[   ]/g,' ').replace(/[–—]/g,'-').replace(/[^\x00-\xFF]/g,'');
+  const M = n => L(fmtMoney(n));
+  const doc = new jsPDF({unit:'mm', format:'a4'});
+  const W=210, ML=15, MR=195; let y=18;
+  const novaPag = (h)=>{ if(y+h>280){ doc.addPage(); y=18; } };
+  const em = d.empresa || {};
+  doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.text(L(em.nome||WS_META[ws].label), ML, y); y+=6;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  const meta = [em.documento, em.endereco].filter(Boolean).join(' - ');
+  if(meta){ doc.text(L(meta), ML, y); y+=5; }
+  doc.setFontSize(9); doc.text('Emitido em '+L(fmtDate(todayISO())), MR, 18, {align:'right'});
+  y+=2; doc.setDrawColor(150); doc.line(ML,y,MR,y); y+=8;
+  doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text('Demonstrativo de Débito', ML, y); y+=8;
+  doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.text('Cliente: ', ML, y);
+  doc.setFont('helvetica','normal'); doc.text(L(nome), ML+16, y); y+=5;
+  if(resp){ doc.setFont('helvetica','bold'); doc.text('Responsavel financeiro: ', ML, y); doc.setFont('helvetica','normal'); doc.text(L(resp.nome+' ('+resp.codigo+')'), ML+42, y); y+=5; }
+  y+=3;
+  let totalGeral=0;
+  vendas.forEach(v=>{
+    const saldo = saldoAbertoVenda(v); totalGeral += saldo;
+    const pago = v.total - saldo;
+    novaPag(20+Math.min(v.itens.length,3)*6);
+    doc.setFillColor(235,235,235); doc.rect(ML,y-4.5,MR-ML,7,'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('Venda '+L(v.numero)+'  -  '+L(fmtDate(v.data)), ML+2, y);
+    doc.text('Total: '+M(v.total), MR-2, y, {align:'right'}); y+=7;
+    doc.setFontSize(8.5); doc.text('Material',ML+2,y); doc.text('Qtd',120,y,{align:'right'}); doc.text('Preco',152,y,{align:'right'}); doc.text('Subtotal',MR-2,y,{align:'right'}); y+=1.5;
+    doc.setDrawColor(200); doc.line(ML,y,MR,y); y+=4;
+    doc.setFont('helvetica','normal');
+    v.itens.forEach(it=>{
+      const linhas = doc.splitTextToSize(L(it.nome), 85);
+      novaPag(linhas.length*4+2);
+      doc.text(linhas, ML+2, y);
+      doc.text(L(fmtQty(it.quantidade)+' '+(it.unidade||'')), 120, y, {align:'right'});
+      doc.text(M(it.precoUnit), 152, y, {align:'right'});
+      doc.text(M(it.subtotal), MR-2, y, {align:'right'});
+      y += linhas.length*4+1.5;
+    });
+    if(pago>0.005){
+      novaPag(12); doc.setFontSize(9);
+      doc.text('Ja pago: '+M(pago), MR-2, y, {align:'right'}); y+=4.5;
+    }
+    doc.setFont('helvetica','bold'); doc.setFontSize(9.5);
+    doc.text('Em aberto: '+M(saldo), MR-2, y, {align:'right'}); y+=9;
+  });
+  novaPag(30);
+  doc.setDrawColor(60); doc.line(ML,y-3,MR,y-3);
+  doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.text('TOTAL DO DEBITO: '+M(totalGeral), MR, y+3, {align:'right'}); y+=14;
+  const qr = d.qrPagamento || {};
+  if(qr.foto){
+    try{
+      novaPag(62);
+      const fmt = /^data:image\/jpe?g/i.test(qr.foto) ? 'JPEG' : 'PNG';
+      doc.addImage(qr.foto, fmt, W/2-25, y, 50, 50); y+=54;
+      if(qr.legenda){ doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text(doc.splitTextToSize(L(qr.legenda),150), W/2, y, {align:'center'}); }
+    }catch(e){ console.warn('QR no PDF falhou', e); }
+  } else if(qr.legenda){
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text('Pagamento: '+L(qr.legenda), ML, y);
+  }
+  const nomeArq = 'debito-'+L(nome).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+todayISO()+'.pdf';
+  const blob = doc.output('blob');
+  closeModal();
+  try{
+    const file = new File([blob], nomeArq, {type:'application/pdf'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:'Débito - '+nome});
+      return;
+    }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  doc.save(nomeArq);
+  showToast('PDF gerado: '+nomeArq, 'good');
+}
+
+function printComprovanteDebito(empresaKeys, vendaIdsFiltro){
   const d = cur();
   const chaves = Array.isArray(empresaKeys) ? empresaKeys : [empresaKeys];
   const grupos = chaves.map(key=>{
     const empObj = key!=='__semempresa__' ? empresaObj(key) : null;
     const nomeGrupo = empObj ? empObj.nome : 'Cliente avulso';
-    const vendasPendentes = d.vendas.filter(v=>v.status!=='Cancelada' && saldoAbertoVenda(v)>0.005 && (v.empresaId||'__semempresa__')===key)
+    const vendasPendentes = d.vendas.filter(v=>v.status!=='Cancelada' && saldoAbertoVenda(v)>0.005 && (v.empresaId||'__semempresa__')===key && (!vendaIdsFiltro || vendaIdsFiltro.includes(v.id)))
       .sort((a,b)=>new Date(a.data)-new Date(b.data));
     return { key, nomeGrupo, empObj, vendasPendentes, total: vendasPendentes.reduce((s,v)=>s+saldoAbertoVenda(v),0) };
   }).filter(g=>g.vendasPendentes.length);
@@ -5359,6 +5912,9 @@ function excluirUsuario(id){
   if(usuarioAtual && usuarioAtual.id===id) usuarioAtual = null;
   saveUsuarios();
   renderAll();
+}
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
 }
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
