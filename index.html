@@ -4579,12 +4579,12 @@ function renderVendas(){
     return `<div style="margin:0 0 4px;">${collapsiblePanel('vendas-emp-'+g.key, esc(g.nome), sub, '', content)}</div>`;
   }).join('');
 
-  const sequencial = [...vendasBase].sort((a,b)=> numeroSeq(a)-numeroSeq(b) || new Date(a.data)-new Date(b.data));
+  const sequencial = [...vendasBase].sort((a,b)=> numeroSeq(b)-numeroSeq(a) || new Date(b.data)-new Date(a.data));
   const totalSeq = sequencial.filter(v=>v.status==='Concluída').reduce((s,v)=>s+v.total,0);
 
   return collapsiblePanel('vendas-por-clientes', 'Vendas por Clientes', grupos.length+' pasta(s) de cliente — cada cliente com suas vendas registradas',
       '', porCliente || `<div class="empty" style="padding:16px;"><p>Nenhuma venda encontrada.</p></div>`)
-    + collapsiblePanel('vendas-sequencial', 'Vendas Sequencial', sequencial.length+' venda(s) na ordem de registro · Total concluído: '+fmtMoney(totalSeq),
+    + collapsiblePanel('vendas-sequencial', 'Vendas Sequencial', sequencial.length+' venda(s) · mais recente primeiro · Total concluído: '+fmtMoney(totalSeq),
       '', vendaTableHtml(sequencial, true));
 }
 let vendaEdicaoItens = [];
