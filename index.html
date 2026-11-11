@@ -3582,6 +3582,7 @@ function renderPedidos(){
           <td class="mono">${fmtMoney(p.total)}</td>
           <td><div class="row-actions">
             <button class="btn btn-ghost btn-sm" title="Imprimir" onclick="printPedido('${p.id}')">${iconPrint()} Imprimir</button>
+            ${p.status==='Pendente'?`<button class="btn btn-ghost btn-sm" title="Comparar o pedido com o estoque e ver o que falta produzir" onclick="printComparativoPedido('${p.id}')">${iconPrint()} Comparativo estoque</button>`:''}
             ${p.status==='Pendente'?`<button class="btn btn-ghost btn-sm" title="Editar pedido" onclick="openPedidoForm('${p.id}')">${iconEdit()} Editar</button>`:''}
             ${(p.status==='Pendente' && ws==='etiquetag')?`<button class="btn btn-ghost btn-sm" title="Enviar para produção" onclick="enviarPedidoParaProducao('${p.id}')">${iconFactory()} Enviar p/ Produção</button>`:''}
             ${p.status==='Pendente'?`<button class="btn btn-accent btn-sm" title="Transferir para venda" onclick="convertPedido('${p.id}')">${iconCheck()} Transformar em venda</button>`:''}
@@ -5723,6 +5724,48 @@ function printVenda(id){
   const text = buildReceiptText('Comprovante de venda', v.numero,
     ['Cliente: '+v.cliente, 'Data: '+fmtDate(v.data), 'Pagamento: '+v.formaPagamento], v.itens, totalLines);
   printDocument(html, text);
+}
+function comparativoPedido(p){
+  const d = cur();
+  const restante = {};
+  return p.itens.map(it=>{
+    let cands = [];
+    if(it.produtoId){ const x = d.estoque.find(e=>e.id===it.produtoId); if(x) cands=[x]; }
+    else {
+      const emp = it.empresaId ? empresaObj(it.empresaId) : null;
+      const ref = (emp && it.referencia) ? (emp.referencias||[]).find(r=>r.codigo===it.referencia) : null;
+      cands = d.estoque.filter(e=>e.tipo==='Tag' && e.tamanhoId===it.tamanhoId && (e.numeracaoId||'')===(it.numeracaoId||'') && (e.empresaId||'')===(it.empresaId||'')
+        && (!it.composicaoId || !e.composicaoId || e.composicaoId===it.composicaoId)
+        && (!ref || !e.referenciaId || e.referenciaId===ref.id));
+    }
+    let disponivel = 0;
+    cands.forEach(c=>{ if(restante[c.id]===undefined) restante[c.id] = c.quantidade||0; });
+    let precisa = it.quantidade;
+    cands.forEach(c=>{ const usa = Math.min(precisa, restante[c.id]); restante[c.id] -= usa; precisa -= usa; disponivel += usa; });
+    const emEstoqueTotal = cands.reduce((s,c)=>s+(c.quantidade||0),0);
+    return { item: it, pedido: it.quantidade, estoque: emEstoqueTotal, usado: disponivel, falta: Math.max(0, it.quantidade-disponivel) };
+  });
+}
+function printComparativoPedido(id){
+  const p = cur().pedidos.find(x=>x.id===id); if(!p) return;
+  const linhas = comparativoPedido(p);
+  const completo = linhas.every(l=>l.falta<=0.0001);
+  const un = l => esc(l.item.unidade||'un');
+  const html = `<div class="doc">${docHeadHtml('Comparativo: pedido × estoque', p.numero)}
+    <div class="doc-meta"><span>Cliente: <strong>${esc(p.cliente)}</strong></span><span>Data: ${fmtDate(p.data)}</span><span>Status: ${esc(p.status)}</span></div>
+    <table><thead><tr><th>Item do pedido</th><th>Pedido</th><th>Em estoque</th><th>Falta produzir</th></tr></thead>
+    <tbody>${linhas.map(l=>`<tr><td>${esc(l.item.nome)}${l.item.referencia?'<br><span style="font-size:10px;color:#555;">Ref: '+esc(l.item.referencia)+'</span>':''}</td>
+      <td>${fmtQty(l.pedido)} ${un(l)}</td><td>${fmtQty(l.estoque)} ${un(l)}</td>
+      <td><strong>${l.falta>0.0001 ? fmtQty(l.falta)+' '+un(l) : 'Completo'}</strong></td></tr>`).join('')}</tbody></table>
+    <div style="margin:18px 0;padding:12px;border:2px solid #111;text-align:center;font-weight:700;font-size:14px;">
+      ${completo ? 'O PEDIDO ESTÁ COMPLETO, SEGUIR COM A VENDA DIRETA.' : 'PEDIDO INCOMPLETO — FALTA PRODUZIR PARA COMPLETAR O PEDIDO.'}</div>
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+  const texto = [];
+  linhas.forEach(l=>{ texto.push({nome:l.item.nome, quantidade:l.pedido, unidade:l.item.unidade||'un', precoUnit:0, subtotal:0}); });
+  let t = buildReceiptText('Comparativo pedido x estoque', p.numero, ['Cliente: '+p.cliente, 'Data: '+fmtDate(p.data)], [], []);
+  const corpo = linhas.map(l=>l.item.nome+'\n  Pedido: '+fmtQty(l.pedido)+' | Estoque: '+fmtQty(l.estoque)+' | Falta: '+(l.falta>0.0001?fmtQty(l.falta):'completo')).join('\n');
+  const rodape = completo ? 'O PEDIDO ESTA COMPLETO,\nSEGUIR COM A VENDA DIRETA.' : 'PEDIDO INCOMPLETO - FALTA PRODUZIR.';
+  printDocument(html, t.replace('--------------------------------\n\n', '--------------------------------\n')+'\n'+corpo+'\n--------------------------------\n'+rodape+'\n\n\n');
 }
 function printPedido(id){
   const p = cur().pedidos.find(x=>x.id===id);
