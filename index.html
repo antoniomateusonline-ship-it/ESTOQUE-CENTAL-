@@ -4536,6 +4536,7 @@ function vendaTableHtml(lista, mostrarCliente){
         <td>${v.status==='Concluída'?`<button class="btn btn-sm ${v.entregue===false?'btn-ghost':'btn-accent'}" onclick="toggleEntregue('${v.id}')">${v.entregue===false?badgeHtml('warn','Não entregue'):badgeHtml('good','Entregue')}</button>`:'—'}</td>
         <td><div class="row-actions">
           ${v.status==='Concluída'?`<button class="btn btn-ghost btn-sm" title="Editar venda" onclick="openEditarVenda('${v.id}')">${iconEdit()} Editar</button>`:''}
+          <button class="btn btn-ghost btn-sm" title="Visualizar comprovante" onclick="visualizarVenda('${v.id}')">Visualizar</button>
           <button class="btn btn-accent btn-sm" title="Gerar PDF do comprovante para enviar ao cliente" onclick="gerarPdfVenda('${v.id}')">PDF</button>
           <button class="btn btn-ghost btn-sm" title="Imprimir comprovante" onclick="printVenda('${v.id}')">${iconPrint()}</button>
           ${v.status==='Concluída'?`<button class="icon-btn" title="Cancelar venda" onclick="cancelVenda('${v.id}')">${iconX()}</button>`:''}
@@ -4713,7 +4714,8 @@ async function gerarPdfVenda(id){
       if(qr.legenda){ doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text(doc.splitTextToSize(L(qr.legenda),150), W/2, y, {align:'center'}); }
     }catch(err){ console.warn('QR no PDF falhou', err); }
   }
-  const nomeArq = 'venda-'+L(v.numero).toLowerCase().replace(/[^a-z0-9]+/g,'-')+'-'+L(v.cliente).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'.pdf';
+  const nomeSeguro = t => String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,' ').trim();
+  const nomeArq = (nomeSeguro(v.cliente)||'Cliente')+'.'+nomeSeguro(v.numero)+'.pdf';
   const blob = doc.output('blob');
   try{
     const file = new File([blob], nomeArq, {type:'application/pdf'});
@@ -5620,7 +5622,7 @@ async function gerarPdfDebito(){
   } else if(qr.legenda){
     doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text('Pagamento: '+L(qr.legenda), ML, y);
   }
-  const nomeArq = 'debito-'+L(nome).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+todayISO()+'.pdf';
+  const nomeArq = (String(nome).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,' ').trim()||'Cliente')+'.debito-'+todayISO()+'.pdf';
   const blob = doc.output('blob');
   closeModal();
   try{
@@ -5679,6 +5681,27 @@ function printComprovanteDebito(empresaKeys, vendaIdsFiltro){
   });
   const text = buildReceiptText('Comprovante de Débito', WS_META[ws].label, linhasTexto, [], []);
   printDocument(html, text);
+}
+function vendaDocHtml(v){
+  const d = cur();
+  const subtotal = v.itens.reduce((s,i)=>s+i.subtotal,0);
+  const qr = d.qrPagamento || {foto:'', legenda:''};
+  const qrHtml = qr.foto ? `<div style="text-align:center;margin:16px 0;padding-top:12px;border-top:1px dashed #999;"><img src="${qr.foto}" style="width:130px;height:130px;object-fit:contain;">${qr.legenda?`<div style="font-size:11px;margin-top:6px;">${esc(qr.legenda)}</div>`:''}</div>` : '';
+  return `<div class="doc">${docHeadHtml('Comprovante de venda', v.numero)}
+    <div class="doc-meta"><span>Cliente: <strong>${esc(v.cliente)}</strong></span><span>Data: ${fmtDate(v.data)}</span><span>Pagamento: ${esc(v.formaPagamento)}</span></div>
+    ${itensTableHtml(v.itens)}
+    <div class="doc-total">${v.desconto?`<div>Subtotal: ${fmtMoney(subtotal)}</div><div>Desconto: -${fmtMoney(v.desconto)}</div>`:''}<div class="grand">Total: ${fmtMoney(v.total)}</div></div>
+    ${qrHtml}
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+}
+function visualizarVenda(id){
+  const v = cur().vendas.find(x=>x.id===id); if(!v) return;
+  openModal(`
+    <div class="modal-head"><h3>Visualizar venda ${esc(v.numero)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body"><div style="background:#fff;color:#111;border:1px solid var(--line);border-radius:8px;padding:14px;overflow-x:auto;">${vendaDocHtml(v)}</div></div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Fechar</button>
+      <button type="button" class="btn btn-ghost" onclick="printVenda('${v.id}')">${iconPrint()} Imprimir</button>
+      <button type="button" class="btn btn-accent" onclick="closeModal();gerarPdfVenda('${v.id}')">Gerar PDF</button></div>`);
 }
 function printVenda(id){
   const d = cur();
