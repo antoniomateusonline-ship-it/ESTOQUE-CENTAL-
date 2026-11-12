@@ -1422,8 +1422,21 @@ function tagProntoListRowHtml(it){
     <div class="l-val" style="display:flex;align-items:center;gap:8px;">
       <div>${fmtQty(it.quantidade)} un.<div class="l-sub">${fmtMoney(it.preco)}/milheiro</div></div>
       <button class="icon-btn" title="Editar" onclick="openEstoqueForm('${it.id}')">${iconEdit()}</button>
+      <button class="icon-btn" title="Excluir este cadastro" onclick="excluirProntoComRegistro('${it.id}')">${iconTrash()}</button>
     </div>
   </div>`;
+}
+function excluirProntoComRegistro(id){
+  const d = cur();
+  const it = d.estoque.find(x=>x.id===id); if(!it) return;
+  const emPedido = d.pedidos.filter(pd=>pd.status==='Pendente' && pd.itens.some(i=>i.produtoId===id)).map(pd=>pd.numero);
+  if(!confirm('Excluir este cadastro?\n\n'+ajusteLabel(it)+' ('+it.codigo+')\nEstoque: '+fmtInt(it.quantidade)+' un.'+(emPedido.length?'\n\nAtenção: está vinculado ao(s) pedido(s) pendente(s) '+emPedido.join(', ')+'.':'')+'\n\nEsta ação não pode ser desfeita.')) return;
+  if(!d.ajustesEstoque) d.ajustesEstoque = [];
+  d.ajustesEstoque.push({ id: uid(), numero: nextCode('AJ','aj'), data: todayISO(), itemId: it.id, itemNome: it.nome, descricao: ajusteLabel(it)+' ('+it.codigo+')', referencia: it.referencia||'', empresaId: it.empresaId||'',
+    tipo:'saida', quantidade: it.quantidade, unidade:'un', qtdAntes: it.quantidade, qtdDepois: 0, motivo:'Cadastro excluído do estoque', criadoPor: usuarioAtual?usuarioAtual.nome:'' });
+  d.estoque = d.estoque.filter(x=>x.id!==id);
+  saveWS(); renderAll();
+  showToast('Cadastro excluído.', 'good');
 }
 function tagProntoCardHtml(it){
   const d = cur();
