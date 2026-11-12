@@ -1047,6 +1047,7 @@ function renderProducaoTab(){
     return `<div class="list-row" style="flex-wrap:wrap;"><div><div class="l-name">${pedidoSemaforoHtml(p)}${esc(p.numero)} — ${esc(p.cliente)}</div><div class="l-sub">${fmtDate(p.data)} · ${completo?'Todo o material está em estoque':(qtdPend>0?'Em produção: '+fmtInt(qtdPend)+' un. aguardando entrada no estoque':'Produzido: '+fmtInt(qtdProduzida)+' de '+fmtInt(qtdPedida)+' un.')}</div></div>
       <div class="l-val" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-ghost btn-sm" onclick="goTo('pedidos')">Ver pedido</button>
+        ${pend.length?`<button class="btn btn-ghost btn-sm" title="Imprimir o que precisa ser produzido neste pedido" onclick="printProducaoPedido('${p.id}')">${iconPrint()} Imprimir produção</button>`:''}
         ${pend.length>1?`<button class="btn btn-accent btn-sm" onclick="adicionarPedidoAoEstoque('${p.id}')">${iconCheck()} Adicionar tudo ao estoque</button>`:''}
         ${(completo||qtdProduzida>=qtdPedida)?`<button class="btn btn-accent btn-sm" onclick="convertPedido('${p.id}')">${iconCheck()} Transformar em venda</button>`:''}
       </div>
@@ -6039,6 +6040,36 @@ function pedidoSemaforoHtml(p){
   const cor = completo ? '#2E9E5B' : '#D64545';
   const tip = completo ? 'Todo o material está em estoque: pode realizar a venda direta' : 'Falta material em estoque para completar este pedido';
   return `<span title="${tip}" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;box-shadow:0 0 0 2px ${cor}33;"></span>`;
+}
+function printProducaoPedido(pedidoId){
+  const d = cur();
+  const p = d.pedidos.find(x=>x.id===pedidoId); if(!p) return;
+  const pend = (d.fabricacoes||[]).filter(f=>f.pedidoId===pedidoId && f.status==='Pendente');
+  if(!pend.length){ showToast('Não há itens pendentes de produção neste pedido.', 'bad'); return; }
+  const linhas = pend.map(f=>{
+    const mp = d.estoque.find(x=>x.id===f.tagMpId);
+    const tam = mp ? tamanhoObj(mp.tamanhoId) : null;
+    const num = numeracaoObj(f.numeracaoId);
+    const emp = empresaObj(f.empresaId);
+    const rb = f.ribbonId ? d.estoque.find(x=>x.id===f.ribbonId) : null;
+    const upr = tam ? (tam.unidadesPorRolo||0) : 0;
+    const metros = tam ? f.quantidade*getConsumoMetros(tam) : 0;
+    const comp = tam ? composicaoLineText({tamanhoId: tam.id, empresaId: f.empresaId, composicaoId: f.composicaoId, recPadraoId: f.recPadraoId}) : '';
+    return { f, tam, num, emp, rb, rolos: upr>0 ? f.quantidade/upr : 0, metros, comp, ref: f.referenciaId ? refCodigoPorId(f.referenciaId) : '' };
+  });
+  const totalQtd = linhas.reduce((s,l)=>s+l.f.quantidade,0);
+  const totalMetros = linhas.reduce((s,l)=>s+l.metros,0);
+  const html = `<div class="doc">${docHeadHtml('Ordem de produção — material a produzir', p.numero)}
+    <div class="doc-meta"><span>Cliente: <strong>${esc(p.cliente)}</strong></span><span>Pedido de: ${fmtDate(p.data)}</span><span>Emitido: ${fmtDateTime(todayISO())}</span></div>
+    <table><thead><tr><th>Item</th><th>Ref.</th><th>Numeração</th><th>Ribbon</th><th style="text-align:right;">Produzir</th><th style="text-align:right;">Tag em branco</th><th style="text-align:right;">Ribbon</th></tr></thead>
+    <tbody>${linhas.map(l=>`<tr><td>${esc(l.tam?l.tam.nome:'—')}${l.tam&&l.tam.composicao?' (Composição)':''}${l.comp&&l.comp.texto?'<br><span style="font-size:10px;color:#555;">'+esc(l.comp.texto)+'</span>':''}</td>
+      <td>${esc(l.ref||'—')}</td><td>${esc(l.num?l.num.nome:'—')}</td><td>${esc(l.rb?l.rb.nome:'—')}</td>
+      <td style="text-align:right;"><strong>${fmtInt(l.f.quantidade)} un.</strong></td><td style="text-align:right;">${fmtQty(l.rolos)} rolo(s)</td><td style="text-align:right;">${fmtQty(l.metros)} m</td></tr>`).join('')}</tbody></table>
+    <div class="doc-total"><div class="grand">Total a produzir: ${fmtInt(totalQtd)} un. · Ribbon: ${fmtQty(totalMetros)} m</div></div>
+    <div class="doc-foot"><div>Pedido ${esc(p.numero)} — ${esc(p.cliente)}</div>${signLineHtml()}</div></div>`;
+  const corpo = linhas.map(l=>(l.tam?l.tam.nome:'Item')+(l.num?' '+l.num.nome:'')+(l.ref?' ref '+l.ref:'')+'\n  Produzir: '+fmtInt(l.f.quantidade)+' un.\n  Ribbon: '+(l.rb?l.rb.nome:'-')+' ('+fmtQty(l.metros)+' m)').join('\n');
+  const base = buildReceiptText('Ordem de producao', p.numero, ['Cliente: '+p.cliente, 'Pedido de: '+fmtDate(p.data)], [], []);
+  printDocument(html, base+'\n'+corpo+'\n--------------------------------\nTotal: '+fmtInt(totalQtd)+' un.\n\n\n');
 }
 function definirRibbonFabricacao(id, ribbonId){
   const f = (cur().fabricacoes||[]).find(x=>x.id===id); if(!f) return;
