@@ -407,6 +407,9 @@ function migrateIfNeeded(wsKey, raw){
     if(it.composicaoId===undefined) it.composicaoId = '';
     if(it.recPadraoId===undefined) it.recPadraoId = '';
     if(it.referenciaId===undefined) it.referenciaId = '';
+    if(it.referenciaId && !it.referencia){
+      (raw.empresas||[]).forEach(e=>{ (e.referencias||[]).forEach(r=>{ if(r.id===it.referenciaId) it.referencia = r.codigo; }); });
+    }
     if(!it.codigosBarras) it.codigosBarras = [];
     if(it.outroTipo===undefined) it.outroTipo = '';
     if(!it.historicoPrecos) it.historicoPrecos = [];
@@ -953,10 +956,14 @@ function linhaFabricacaoPendente(f){
   const num = numeracaoObj(f.numeracaoId);
   const emp = empresaObj(f.empresaId);
   const rb = f.ribbonId ? d.estoque.find(x=>x.id===f.ribbonId) : null;
-  return `<div class="list-row"><div><div class="l-name">${esc(tam?tam.nome:'—')}${num?' '+esc(num.nome):''}${tam&&tam.composicao?' <span class="cat-tag">Composição</span>':''}</div>
-    <div class="l-sub">${emp?esc(emp.nome)+' · ':''}${rb?'Ribbon: '+esc(rb.nome)+' · ':''}${fmtQty(f.quantidade)} un. · ${fmtDate(f.data)}</div></div>
-    <div class="l-val" style="display:flex;gap:8px;align-items:center;">
-      <button class="btn btn-accent btn-sm" onclick="enviarFabricacaoParaEstoque('${f.id}')">${iconCheck()} Enviar para o Estoque</button>
+  const tiposRb = tam&&tam.composicao ? ['Cera','Têxtil'] : ['Cera'];
+  const ribbonSel = !rb ? `<select onchange="definirRibbonFabricacao('${f.id}',this.value)" title="Selecione o ribbon"><option value="">Ribbon...</option>${d.estoque.filter(x=>x.tipo==='Ribbon'&&tiposRb.includes(x.tipoRibbon)).map(x=>`<option value="${x.id}">${esc(x.tipoRibbon)} — ${esc(x.nome)}</option>`).join('')}</select>` : '';
+  const refCod = f.referenciaId ? refCodigoPorId(f.referenciaId) : '';
+  return `<div class="list-row"><div><div class="l-name">${esc(tam?tam.nome:'—')}${num?' '+esc(num.nome):''}${tam&&tam.composicao?' <span class="cat-tag">Composição</span>':''}${f.pedidoNumero?' <span class="code-tag">'+esc(f.pedidoNumero)+'</span>':''}</div>
+    <div class="l-sub">${emp?esc(emp.nome)+' · ':''}${refCod?'Ref '+esc(refCod)+' · ':''}${rb?'Ribbon: '+esc(rb.nome)+' · ':''}${fmtQty(f.quantidade)} un. · ${fmtDate(f.data)}</div></div>
+    <div class="l-val" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      ${ribbonSel}
+      <button class="btn btn-accent btn-sm" onclick="enviarFabricacaoParaEstoque('${f.id}')">${iconCheck()} ${f.pedidoId?'Adicionar ao estoque':'Enviar para o Estoque'}</button>
       <button class="icon-btn" title="Cancelar" onclick="cancelarFabricacaoPendente('${f.id}')">${iconTrash()}</button>
     </div></div>`;
 }
@@ -999,16 +1006,16 @@ function enviarFabricacaoParaEstoque(fabricacaoId){
     if(precoMilheiro>0) pronto.preco = precoMilheiro;
     if(f.composicaoId) pronto.composicaoId = f.composicaoId;
     if(f.recPadraoId) pronto.recPadraoId = f.recPadraoId;
-    if(f.referenciaId) pronto.referenciaId = f.referenciaId;
+    if(f.referenciaId){ pronto.referenciaId = f.referenciaId; pronto.referencia = refCodigoPorId(f.referenciaId); }
   } else {
     pronto = { id: uid(), codigo: nextCode('TG','tg'), nome: mp.nome, tipo:'Tag', tipoRibbon:'',
       tamanhoId: mp.tamanhoId, categoriaTag: mp.categoriaTag, numeracaoId: f.numeracaoId||'', empresaId: f.empresaId||'', ribbonId: f.ribbonId||'', fornecedor:'', metrosPorRolo:0,
-      composicaoId: f.composicaoId||'', recPadraoId: f.recPadraoId||'', referenciaId: f.referenciaId||'',
+      composicaoId: f.composicaoId||'', recPadraoId: f.recPadraoId||'', referenciaId: f.referenciaId||'', referencia: refCodigoPorId(f.referenciaId),
       quantidade, unidade:'un', estoqueMinimo:0, custo:custoNovoUn, margem:0, preco:precoMilheiro, vendavel:true };
     d.estoque.push(pronto);
   }
   d.producoes.push({ id: uid(), data: todayISO(), responsavel: f.responsavel||(usuarioAtual?usuarioAtual.nome:''), tamanhoId: mp.tamanhoId, numeracaoId: f.numeracaoId||'', empresaId: f.empresaId||'',
-    quantidade, metrosRibbon, ribbonId: f.ribbonId||'', tagProntoId: pronto.id, referencia: refInfo?refInfo.codigo:'', descricaoRef: refInfo?refInfo.descricao:'', pedidoId:'',
+    quantidade, metrosRibbon, ribbonId: f.ribbonId||'', tagProntoId: pronto.id, referencia: refInfo?refInfo.codigo:'', descricaoRef: refInfo?refInfo.descricao:'', pedidoId: f.pedidoId||'',
     composicaoId: f.composicaoId||'', recPadraoId: f.recPadraoId||'' });
   f.status = 'Concluído';
   f.dataEnvio = todayISO();
@@ -1027,21 +1034,29 @@ function renderProducaoTab(){
   const pedidosComProducao = {};
   d.producoes.forEach(p=>{ if(p.pedidoId) (pedidosComProducao[p.pedidoId] = pedidosComProducao[p.pedidoId]||[]).push(p); });
 
-  const emProducao = d.pedidos.filter(p=>p.status==='Pendente' && pedidosComProducao[p.id]);
+  const fabPendPorPedido = {};
+  (d.fabricacoes||[]).filter(f=>f.status==='Pendente' && f.pedidoId).forEach(f=>{ (fabPendPorPedido[f.pedidoId] = fabPendPorPedido[f.pedidoId]||[]).push(f); });
+  const emProducao = d.pedidos.filter(p=>p.status==='Pendente' && (pedidosComProducao[p.id] || fabPendPorPedido[p.id]));
   const linhaPedido = (p)=>{
-    const qtdProduzida = pedidosComProducao[p.id].reduce((s,x)=>s+x.quantidade,0);
+    const prod = pedidosComProducao[p.id]||[];
+    const pend = fabPendPorPedido[p.id]||[];
+    const qtdProduzida = prod.reduce((s,x)=>s+x.quantidade,0);
     const qtdPedida = p.itens.reduce((s,it)=>s+it.quantidade,0);
-    return `<div class="list-row"><div><div class="l-name">${esc(p.numero)} — ${esc(p.cliente)}</div><div class="l-sub">${fmtDate(p.data)} · ${qtdProduzida>=qtdPedida?'Produção completa':'Produzido: '+fmtQty(qtdProduzida)+' de '+fmtQty(qtdPedida)+' un.'}</div></div>
-      <div class="l-val" style="display:flex;align-items:center;gap:8px;">
+    const completo = comparativoPedido(p).every(l=>l.falta<=0.0001);
+    const qtdPend = pend.reduce((s,f)=>s+f.quantidade,0);
+    return `<div class="list-row" style="flex-wrap:wrap;"><div><div class="l-name">${pedidoSemaforoHtml(p)}${esc(p.numero)} — ${esc(p.cliente)}</div><div class="l-sub">${fmtDate(p.data)} · ${completo?'Todo o material está em estoque':(qtdPend>0?'Em produção: '+fmtInt(qtdPend)+' un. aguardando entrada no estoque':'Produzido: '+fmtInt(qtdProduzida)+' de '+fmtInt(qtdPedida)+' un.')}</div></div>
+      <div class="l-val" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-ghost btn-sm" onclick="goTo('pedidos')">Ver pedido</button>
-        ${qtdProduzida>=qtdPedida?`<button class="btn btn-accent btn-sm" onclick="convertPedido('${p.id}')">${iconCheck()} Transformar em venda</button>`:''}
-      </div></div>`;
+        ${pend.length>1?`<button class="btn btn-accent btn-sm" onclick="adicionarPedidoAoEstoque('${p.id}')">${iconCheck()} Adicionar tudo ao estoque</button>`:''}
+        ${(completo||qtdProduzida>=qtdPedida)?`<button class="btn btn-accent btn-sm" onclick="convertPedido('${p.id}')">${iconCheck()} Transformar em venda</button>`:''}
+      </div>
+      ${pend.map(linhaFabricacaoPendente).map(h=>`<div style="flex-basis:100%;margin-left:14px;border-left:2px solid var(--line);padding-left:8px;">${h}</div>`).join('')}</div>`;
   };
 
   let html = collapsiblePanel('producao-pedidos-em-producao', 'Pedidos em Produção', emProducao.length+' pedido(s) sendo produzido(s) agora — some daqui assim que virar venda', '',
     emProducao.length ? emProducao.map(linhaPedido).join('') : `<div class="empty" style="padding:20px;"><p>Nenhum pedido em produção no momento. Use "Produzir" numa matéria-prima no Estoque, carregando os itens de um pedido pendente.</p></div>`);
 
-  const fabricacaoPendente = (d.fabricacoes||[]).filter(f=>f.status==='Pendente');
+  const fabricacaoPendente = (d.fabricacoes||[]).filter(f=>f.status==='Pendente' && !f.pedidoId);
   html += collapsiblePanel('producao-fabricacao-estoque', 'Fabricação para Estoque', fabricacaoPendente.length+' item(ns) sendo produzido(s) sem pedido, só para deixar pronto em estoque', '',
     fabricacaoPendente.length ? fabricacaoPendente.map(linhaFabricacaoPendente).join('') : `<div class="empty" style="padding:20px;"><p>Nenhuma fabricação para estoque pendente. Registre uma na aba Fabricação.</p></div>`);
 
@@ -2347,7 +2362,11 @@ function openAjusteProntosPorReferencia(){
       <div class="field"><label>Motivo (vale para todos os ajustes desta conferência)</label><input id="f_ajrefmotivo" placeholder="Ex.: conferência de estoque, perda, lançamento esquecido"></div>
       <div id="ajusteRefBlocos"></div>
     </div>
-    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-ghost" onclick="openAjusteEstoqueModal('prontos')">Ajustar um item avulso</button><button type="button" class="btn btn-accent" onclick="registrarAjusteProntosPorReferencia()">${iconCheck()} Registrar ajustes</button></div>`);
+    <div class="modal-foot" style="flex-wrap:wrap;gap:8px;"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button type="button" class="btn btn-ghost" onclick="abrirInserirProntoManual()">${iconPlus()} Inserir material</button>
+      <button type="button" class="btn btn-ghost" style="color:#B23A3A;" onclick="excluirProntosSelecionados()">${iconTrash()} Excluir selecionados</button>
+      <button type="button" class="btn btn-ghost" onclick="openAjusteEstoqueModal('prontos')">Item avulso</button>
+      <button type="button" class="btn btn-accent" onclick="registrarAjusteProntosPorReferencia()">${iconCheck()} Registrar ajustes</button></div>`);
   renderAjusteRefBlocos();
 }
 function renderAjusteRefBlocos(){
@@ -2369,6 +2388,7 @@ function renderAjusteRefBlocos(){
         const tam = tamanhoObj(it.tamanhoId); const num = numeracaoObj(it.numeracaoId);
         const v = ajusteContagens[it.id]!==undefined ? ajusteContagens[it.id] : it.quantidade;
         return `<div class="list-row" style="align-items:center;gap:8px;flex-wrap:wrap;">
+          <input type="checkbox" class="f_ajdel" value="${it.id}" title="Selecionar para excluir" style="width:18px;height:18px;">
           <div style="flex:1;min-width:150px;"><div class="l-name">${tam&&tam.composicao?'Etiqueta de Composição':'Tag'}${num?' <span class="num-tag">'+esc(num.nome)+'</span>':''}</div>
             <div class="l-sub">${esc(it.nome)}${tam&&tam.dimensao?' · '+esc(tam.dimensao):''} · Sistema: <strong>${fmtInt(it.quantidade)} un.</strong></div></div>
           <div style="display:flex;align-items:center;gap:6px;"><input type="number" min="0" step="1" style="width:100px;" value="${v}" oninput="atualizarContagemAjuste('${it.id}', this.value)">
@@ -2385,6 +2405,159 @@ function atualizarContagemAjuste(id, valor, silencioso){
   const dif = (isNaN(n)?it.quantidade:n) - it.quantidade;
   const el = document.getElementById('ajd_'+id);
   if(el){ el.textContent = Math.abs(dif)<0.0001 ? '—' : (dif>0?'+':'−')+fmtInt(Math.abs(dif)); el.style.color = dif>0 ? '#2E7D4F' : dif<0 ? '#B23A3A' : ''; }
+}
+function refCodigoPorId(id){ if(!id) return ''; const r = allReferenciasList().find(x=>x.id===id); return r ? r.codigo : ''; }
+function excluirProntosSelecionados(){
+  const d = cur();
+  const ids = Array.from(document.querySelectorAll('.f_ajdel:checked')).map(c=>c.value);
+  if(!ids.length){ showToast('Marque os itens que deseja excluir (caixa à esquerda de cada item).', 'bad'); return; }
+  const itens = d.estoque.filter(x=>ids.includes(x.id));
+  if(!confirm('Excluir '+itens.length+' item(ns) do estoque?\n\n'+itens.slice(0,8).map(x=>'• '+ajusteLabel(x)+' ('+fmtInt(x.quantidade)+' un.)').join('\n')+(itens.length>8?'\n• ...':'')+'\n\nEsta ação não pode ser desfeita.')) return;
+  if(!d.ajustesEstoque) d.ajustesEstoque = [];
+  itens.forEach(it=>{
+    d.ajustesEstoque.push({ id: uid(), numero: nextCode('AJ','aj'), data: todayISO(), itemId: it.id, itemNome: it.nome, descricao: ajusteLabel(it), referencia: it.referencia||'', empresaId: it.empresaId||'',
+      tipo:'saida', quantidade: it.quantidade, unidade:'un', qtdAntes: it.quantidade, qtdDepois: 0, motivo:'Item excluído do estoque', criadoPor: usuarioAtual?usuarioAtual.nome:'' });
+    delete ajusteContagens[it.id];
+  });
+  d.estoque = d.estoque.filter(x=>!ids.includes(x.id));
+  saveWS(); renderAll();
+  showToast(itens.length+' item(ns) excluído(s).', 'good');
+  if(d.estoque.some(itemEhPronto)){ renderAjusteRefBlocos(); } else closeModal();
+}
+function abrirInserirProntoManual(){
+  const d = cur();
+  const empAtual = (document.getElementById('f_ajrefempresa')||{value:''}).value;
+  const tamsTag = d.tamanhos.filter(t=>!t.composicao), tamsComp = d.tamanhos.filter(t=>t.composicao);
+  openModal(`
+    <div class="modal-head"><h3>Inserir material pronto manualmente</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <div class="field"><label>${termEmpresa()}</label><select id="f_pm_empresa" onchange="atualizarReferenciasProntoManual()">
+        <option value="">Sem ${termEmpresa().toLowerCase()}</option>${(d.empresas||[]).map(e=>`<option value="${e.id}" ${e.id===empAtual?'selected':''}>${esc(e.nome)}</option>`).join('')}</select></div>
+      <div class="field"><label>Referência</label><select id="f_pm_ref"></select></div>
+      <div class="field-row">
+        <div class="field"><label>Tipo</label><select id="f_pm_tipo" onchange="atualizarModelosProntoManual()"><option value="tag">Tag</option><option value="comp">Etiqueta de Composição</option></select></div>
+        <div class="field"><label>Modelo / tamanho</label><select id="f_pm_modelo" onchange="atualizarPreviewProntoManual()"></select></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Numeração</label><select id="f_pm_num"><option value="">Sem numeração</option>${(d.numeracoes||[]).map(n=>`<option value="${n.id}">${esc(n.nome)}</option>`).join('')}</select></div>
+        <div class="field"><label>Quantidade (unidades)</label><input type="number" min="1" step="1" id="f_pm_qtd" value="1" oninput="atualizarPreviewProntoManual()"></div>
+      </div>
+      <div class="field"><label>Como deseja inserir?</label>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <label><input type="radio" name="f_pm_modo" value="calc" checked onchange="atualizarPreviewProntoManual()"> <strong>Calcular custo e margem de lucro</strong> — informo o custo; não mexe na matéria-prima</label>
+          <label><input type="radio" name="f_pm_modo" value="desc" onchange="atualizarPreviewProntoManual()"> <strong>Descontar da matéria-prima</strong> — baixa a tag em branco e o ribbon do estoque</label>
+        </div></div>
+      <div id="pmCamposCalc">
+        <div class="field-row">
+          <div class="field"><label>Custo por unidade (R$)</label><input type="number" min="0" step="0.0001" id="f_pm_custo" value="0" oninput="atualizarPreviewProntoManual()"></div>
+          <div class="field"><label>Margem de lucro (%)</label><input type="number" min="0" max="99" step="0.5" id="f_pm_margem" value="30" oninput="atualizarPreviewProntoManual()"></div>
+        </div></div>
+      <div id="pmCamposDesc" style="display:none;">
+        <div class="field-row">
+          <div class="field"><label>Ribbon (obrigatório)</label><select id="f_pm_ribbon" onchange="atualizarPreviewProntoManual()"></select></div>
+          <div class="field"><label>Preço do milheiro (R$)</label><input type="number" min="0" step="0.01" id="f_pm_preco" value="0" oninput="atualizarPreviewProntoManual()"></div>
+        </div></div>
+      <div id="pmPreview" style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"></div>
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="openAjusteProntosPorReferencia()">Voltar</button><button type="button" class="btn btn-accent" onclick="registrarProntoManual()">${iconCheck()} Inserir no estoque</button></div>`);
+  atualizarReferenciasProntoManual(); atualizarModelosProntoManual();
+}
+function atualizarReferenciasProntoManual(){
+  const emp = empresaObj(document.getElementById('f_pm_empresa').value);
+  document.getElementById('f_pm_ref').innerHTML = '<option value="">Sem referência</option>' + (emp?(emp.referencias||[]):[]).map(r=>`<option value="${r.id}">${esc(r.codigo)}${r.descricao?' — '+esc(r.descricao):''}</option>`).join('');
+}
+function atualizarModelosProntoManual(){
+  const comp = document.getElementById('f_pm_tipo').value==='comp';
+  const tams = cur().tamanhos.filter(t=>!!t.composicao===comp);
+  document.getElementById('f_pm_modelo').innerHTML = tams.map(t=>`<option value="${t.id}">${esc(t.nome)}${t.dimensao?' · '+esc(t.dimensao):''}</option>`).join('') || '<option value="">Nenhum modelo cadastrado</option>';
+  const tipos = comp ? ['Cera','Têxtil'] : ['Cera'];
+  const ribbons = cur().estoque.filter(x=>x.tipo==='Ribbon' && tipos.includes(x.tipoRibbon));
+  document.getElementById('f_pm_ribbon').innerHTML = '<option value="">Selecione o ribbon</option>' + ribbons.map(r=>`<option value="${r.id}">Ribbon ${esc(r.tipoRibbon)} — ${esc(r.nome)} (${fmtQty(r.quantidade)}m)</option>`).join('');
+  atualizarPreviewProntoManual();
+}
+function dadosProntoManual(){
+  const g = id => { const e = document.getElementById(id); return e ? e.value : ''; };
+  const d = cur();
+  const modo = (document.querySelector('input[name="f_pm_modo"]:checked')||{value:'calc'}).value;
+  const tam = tamanhoObj(g('f_pm_modelo'));
+  const qtd = Math.round(parseFloat(g('f_pm_qtd'))||0);
+  const ribbon = d.estoque.find(x=>x.id===g('f_pm_ribbon'));
+  const upr = tam ? (tam.unidadesPorRolo||0) : 0;
+  const consumoM = tam ? getConsumoMetros(tam) : 0;
+  const mp = tam ? d.estoque.filter(x=>x.tipo==='TagMP' && x.tamanhoId===tam.id).sort((a,b)=>b.quantidade-a.quantidade)[0] : null;
+  const out = { modo, tam, qtd, ribbon, upr, consumoM, mp, empresaId: g('f_pm_empresa'), refId: g('f_pm_ref'), numeracaoId: g('f_pm_num') };
+  if(modo==='calc'){
+    out.custoUn = parseFloat(g('f_pm_custo'))||0; out.margem = parseFloat(g('f_pm_margem'))||0;
+    out.preco = out.margem<100 && out.custoUn>0 ? (out.custoUn*1000)/(1-out.margem/100) : 0;
+  } else {
+    out.rolosNec = upr>0 ? qtd/upr : qtd; out.metrosNec = qtd*consumoM;
+    const custoTagUn = (mp && upr>0) ? mp.custo/upr : 0;
+    const custoRibUn = ribbon ? (ribbon.preco||0)*consumoM : 0;
+    out.custoUn = custoTagUn + custoRibUn;
+    out.preco = parseFloat(g('f_pm_preco'))||0;
+    out.margem = out.preco>0 ? (1 - (out.custoUn*1000)/out.preco)*100 : 0;
+  }
+  return out;
+}
+function atualizarPreviewProntoManual(){
+  const el = document.getElementById('pmPreview'); if(!el) return;
+  const x = dadosProntoManual();
+  document.getElementById('pmCamposCalc').style.display = x.modo==='calc' ? '' : 'none';
+  document.getElementById('pmCamposDesc').style.display = x.modo==='desc' ? '' : 'none';
+  if(x.modo==='calc'){
+    const lucroUn = x.preco/1000 - x.custoUn;
+    el.innerHTML = `<div>Custo total do lote: <strong class="mono">${fmtMoney(x.custoUn*x.qtd)}</strong></div>
+      <div>Preço de venda calculado: <strong class="mono">${fmtMoney(x.preco)}</strong> por milheiro</div>
+      <div>Lucro previsto no lote: <strong class="mono" style="color:#2E7D4F;">${fmtMoney(lucroUn*x.qtd)}</strong></div>`;
+  } else {
+    const falta = [];
+    if(!x.mp) falta.push('Não há tag em branco (matéria-prima) cadastrada para este modelo.');
+    else if(x.rolosNec > x.mp.quantidade) falta.push('Tag em branco insuficiente: precisa de '+fmtQty(x.rolosNec)+' rolo(s), há '+fmtQty(x.mp.quantidade)+'.');
+    if(!x.ribbon) falta.push('Selecione o ribbon.');
+    else if(x.metrosNec > x.ribbon.quantidade) falta.push('Ribbon insuficiente: precisa de '+fmtQty(x.metrosNec)+' m, há '+fmtQty(x.ribbon.quantidade)+' m.');
+    el.innerHTML = `<div>Será descontado: <strong class="mono">${fmtQty(x.rolosNec)}</strong> rolo(s) de tag em branco e <strong class="mono">${fmtQty(x.metrosNec)}</strong> m de ribbon</div>
+      <div>Custo calculado: <strong class="mono">${fmtMoney3(x.custoUn)}</strong>/un · Margem sobre o preço informado: <strong class="mono">${x.preco>0?x.margem.toFixed(1)+'%':'—'}</strong></div>
+      ${falta.map(f=>`<div style="color:#B23A3A;">${esc(f)}</div>`).join('')}`;
+  }
+}
+function registrarProntoManual(){
+  const d = cur();
+  const x = dadosProntoManual();
+  if(!x.tam){ showToast('Selecione o modelo.', 'bad'); return; }
+  if(x.qtd<=0){ showToast('Informe a quantidade.', 'bad'); return; }
+  let mpUsada = null;
+  if(x.modo==='calc'){
+    if(x.custoUn<=0 && !confirm('O custo está zerado. Inserir mesmo assim?')) return;
+  } else {
+    if(!x.mp){ showToast('Não há tag em branco cadastrada para este modelo.', 'bad'); return; }
+    if(!x.ribbon){ showToast('Selecione o ribbon.', 'bad'); return; }
+    if(x.rolosNec > x.mp.quantidade){ showToast('Tag em branco insuficiente no estoque.', 'bad'); return; }
+    if(x.metrosNec > x.ribbon.quantidade){ showToast('Ribbon insuficiente no estoque.', 'bad'); return; }
+    x.mp.quantidade -= x.rolosNec; x.ribbon.quantidade -= x.metrosNec; mpUsada = x.mp;
+  }
+  const catTag = x.tam.composicao ? 'Composição' : 'Tag';
+  const refCod = refCodigoPorId(x.refId);
+  let pronto = d.estoque.find(p=>p.tipo==='Tag' && p.tamanhoId===x.tam.id && (p.categoriaTag||'Tag')===catTag && (p.numeracaoId||'')===(x.numeracaoId||'') && (p.empresaId||'')===(x.empresaId||'') && (p.referenciaId||'')===(x.refId||''));
+  const antes = pronto ? pronto.quantidade : 0;
+  if(pronto){
+    pronto.custo = (pronto.quantidade*pronto.custo + x.qtd*x.custoUn)/((pronto.quantidade+x.qtd)||1);
+    pronto.quantidade += x.qtd;
+    if(x.preco>0) pronto.preco = x.preco;
+    if(x.modo==='calc') pronto.margem = x.margem;
+    if(x.ribbon) pronto.ribbonId = x.ribbon.id;
+  } else {
+    pronto = { id: uid(), codigo: nextCode('TG','tg'), nome: mpUsada?mpUsada.nome:x.tam.nome, tipo:'Tag', tipoRibbon:'', tamanhoId: x.tam.id, categoriaTag: catTag,
+      numeracaoId: x.numeracaoId||'', empresaId: x.empresaId||'', ribbonId: x.ribbon?x.ribbon.id:'', fornecedor:'', metrosPorRolo:0, composicaoId:'', recPadraoId:'',
+      referenciaId: x.refId||'', referencia: refCod, quantidade: x.qtd, unidade:'un', estoqueMinimo:0, custo:x.custoUn, margem: x.modo==='calc'?x.margem:0, preco:x.preco, vendavel:true };
+    d.estoque.push(pronto);
+  }
+  if(!d.ajustesEstoque) d.ajustesEstoque = [];
+  d.ajustesEstoque.push({ id: uid(), numero: nextCode('AJ','aj'), data: todayISO(), itemId: pronto.id, itemNome: pronto.nome, descricao: ajusteLabel(pronto), referencia: refCod, empresaId: x.empresaId||'',
+    tipo:'entrada', quantidade: x.qtd, unidade:'un', qtdAntes: antes, qtdDepois: pronto.quantidade,
+    motivo: 'Inserção manual ('+(x.modo==='calc'?'custo e margem calculados':'descontado da matéria-prima')+')', criadoPor: usuarioAtual?usuarioAtual.nome:'' });
+  saveWS(); renderAll();
+  showToast('Material inserido no estoque.', 'good');
+  openAjusteProntosPorReferencia();
 }
 function registrarAjusteProntosPorReferencia(){
   const d = cur();
@@ -2909,11 +3082,11 @@ function saveProducao(e, tagMpId){
       if(precoMilheiro>0) pronto.preco = precoMilheiro;
       if(it.composicaoId) pronto.composicaoId = it.composicaoId;
       if(it.recPadraoId) pronto.recPadraoId = it.recPadraoId;
-      if(it.referenciaId) pronto.referenciaId = it.referenciaId;
+      if(it.referenciaId){ pronto.referenciaId = it.referenciaId; pronto.referencia = refCodigoPorId(it.referenciaId); }
     } else {
       pronto = { id: uid(), codigo: nextCode('TG','tg'), nome: mp.nome, tipo:'Tag', tipoRibbon:'',
         tamanhoId: mp.tamanhoId, categoriaTag: mp.categoriaTag, numeracaoId: it.numeracaoId||'', empresaId: it.empresaId||'', ribbonId: it.ribbonId||'', fornecedor:'', metrosPorRolo:0,
-        composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'', referenciaId: it.referenciaId||'',
+        composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'', referenciaId: it.referenciaId||'', referencia: refCodigoPorId(it.referenciaId),
         quantidade, unidade:'un', estoqueMinimo:0, custo:custoNovoUn, margem:0, preco:precoMilheiro, vendavel:true };
       d.estoque.push(pronto);
     }
@@ -3698,11 +3871,12 @@ function renderPedidos(){
       <thead><tr><th>Nº</th><th>Cliente</th><th>Data</th><th>Itens</th><th>Total</th><th></th></tr></thead>
       <tbody>${lista.map(p=>`
         <tr>
-          <td><span class="code-tag">${esc(p.numero)}</span></td><td>${esc(p.cliente)}${(p.criadoPor||p.canceladoPor||p.editadoPor)?`<div class="l-sub">${p.canceladoPor?'Cancelado por '+esc(p.canceladoPor):(p.editadoPor?'Editado por '+esc(p.editadoPor):(p.criadoPor?'Criado por '+esc(p.criadoPor):''))}</div>`:''}</td><td>${fmtDate(p.data)}</td><td>${p.itens.length}</td>
+          <td>${p.status==='Pendente'?pedidoSemaforoHtml(p):''}<span class="code-tag">${esc(p.numero)}</span></td><td>${esc(p.cliente)}${(p.criadoPor||p.canceladoPor||p.editadoPor)?`<div class="l-sub">${p.canceladoPor?'Cancelado por '+esc(p.canceladoPor):(p.editadoPor?'Editado por '+esc(p.editadoPor):(p.criadoPor?'Criado por '+esc(p.criadoPor):''))}</div>`:''}</td><td>${fmtDate(p.data)}</td><td>${p.itens.length}</td>
           <td class="mono">${fmtMoney(p.total)}</td>
           <td><div class="row-actions">
             <button class="btn btn-ghost btn-sm" title="Imprimir" onclick="printPedido('${p.id}')">${iconPrint()} Imprimir</button>
             ${p.status==='Pendente'?`<button class="btn btn-ghost btn-sm" title="Comparar o pedido com o estoque e ver o que falta produzir" onclick="printComparativoPedido('${p.id}')">${iconPrint()} Comparativo estoque</button>`:''}
+            ${(p.status==='Pendente' && ws==='etiquetag')?`<button class="btn btn-ghost btn-sm" title="Envia para produção só o que falta para completar este pedido" onclick="enviarFaltanteParaProducao('${p.id}')">${iconFactory()} Enviar faltante p/ Produção</button>`:''}
             ${p.status==='Pendente'?`<button class="btn btn-ghost btn-sm" title="Editar pedido" onclick="openPedidoForm('${p.id}')">${iconEdit()} Editar</button>`:''}
             ${(p.status==='Pendente' && ws==='etiquetag')?`<button class="btn btn-ghost btn-sm" title="Enviar para produção" onclick="enviarPedidoParaProducao('${p.id}')">${iconFactory()} Enviar p/ Produção</button>`:''}
             ${p.status==='Pendente'?`<button class="btn btn-accent btn-sm" title="Transferir para venda" onclick="convertPedido('${p.id}')">${iconCheck()} Transformar em venda</button>`:''}
@@ -3728,6 +3902,7 @@ function enviarPedidoParaProducao(pedidoId){
 function deletePedido(id){
   if(!confirm('Excluir este pedido?')) return;
   const d = cur(); d.pedidos = d.pedidos.filter(x=>x.id!==id);
+  d.fabricacoes = (d.fabricacoes||[]).filter(f=>!(f.pedidoId===id && f.status==='Pendente'));
   saveWS(); renderAll(); showToast('Pedido excluído.', 'good');
 }
 function itemFormRow(idx, item, vendaveis){
@@ -4280,6 +4455,7 @@ function cancelPedido(id){
   if(!confirm('Cancelar este pedido?')) return;
   const p = cur().pedidos.find(x=>x.id===id);
   p.status = 'Cancelado';
+  cur().fabricacoes = (cur().fabricacoes||[]).filter(f=>!(f.pedidoId===id && f.status==='Pendente'));
   p.canceladoPor = usuarioAtual?usuarioAtual.nome:'';
   saveWS(); renderAll();
   showToast('Pedido cancelado.', 'good');
@@ -5844,6 +6020,59 @@ function printVenda(id){
   const text = buildReceiptText('Comprovante de venda', v.numero,
     ['Cliente: '+v.cliente, 'Data: '+fmtDate(v.data), 'Pagamento: '+v.formaPagamento], v.itens, totalLines);
   printDocument(html, text);
+}
+function pedidoSemaforoHtml(p){
+  const completo = comparativoPedido(p).every(l=>l.falta<=0.0001);
+  const cor = completo ? '#2E9E5B' : '#D64545';
+  const tip = completo ? 'Todo o material está em estoque: pode realizar a venda direta' : 'Falta material em estoque para completar este pedido';
+  return `<span title="${tip}" style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${cor};margin-right:6px;vertical-align:middle;box-shadow:0 0 0 2px ${cor}33;"></span>`;
+}
+function definirRibbonFabricacao(id, ribbonId){
+  const f = (cur().fabricacoes||[]).find(x=>x.id===id); if(!f) return;
+  f.ribbonId = ribbonId; saveWS();
+}
+function adicionarPedidoAoEstoque(pedidoId){
+  const d = cur();
+  const pend = (d.fabricacoes||[]).filter(f=>f.pedidoId===pedidoId && f.status==='Pendente');
+  if(!pend.length) return;
+  const semRibbon = pend.filter(f=>!f.ribbonId);
+  if(semRibbon.length){ showToast('Selecione o ribbon nas linhas que estão sem ribbon.', 'bad'); return; }
+  let ok = 0;
+  for(const f of pend){
+    const antes = f.status;
+    enviarFabricacaoParaEstoque(f.id);
+    if(f.status==='Concluído') ok++; else break;
+  }
+  if(ok && ok<pend.length) showToast('Algumas linhas não puderam entrar no estoque (verifique matéria-prima e ribbon).', 'bad');
+}
+function enviarFaltanteParaProducao(pedidoId){
+  const d = cur();
+  const p = d.pedidos.find(x=>x.id===pedidoId); if(!p) return;
+  const linhas = comparativoPedido(p);
+  if(linhas.every(l=>l.falta<=0.0001)){ showToast('O pedido está completo em estoque: pode seguir com a venda direta.', 'good'); return; }
+  if(!d.fabricacoes) d.fabricacoes = [];
+  const novas = []; const avisos = [];
+  linhas.forEach((l,idx)=>{
+    const it = l.item;
+    if(l.falta<=0.0001) return;
+    if(!it.tamanhoId){ avisos.push((it.nome||'Item')+': sem modelo definido'); return; }
+    const jaPendente = d.fabricacoes.filter(f=>f.pedidoId===p.id && f.pedidoItemIdx===idx && f.status==='Pendente').reduce((s,f)=>s+f.quantidade,0);
+    const qtd = l.falta - jaPendente;
+    if(qtd<=0.0001) return;
+    const mp = d.estoque.filter(x=>x.tipo==='TagMP' && x.tamanhoId===it.tamanhoId).sort((a,b)=>b.quantidade-a.quantidade)[0];
+    if(!mp){ avisos.push((it.nome||'Item')+': sem matéria-prima cadastrada'); return; }
+    const tam = tamanhoObj(it.tamanhoId);
+    let referenciaId = '';
+    if(it.referencia){ const emp = it.empresaId ? empresaObj(it.empresaId) : null; const r = emp ? (emp.referencias||[]).find(x=>x.codigo===it.referencia) : allReferenciasList().find(x=>x.codigo===it.referencia); if(r) referenciaId = r.id; }
+    const ribbonId = it.ribbonId || ((tam && !tam.composicao) ? ((d.estoque.find(x=>x.tipo==='Ribbon' && x.tipoRibbon==='Cera')||{}).id||'') : '');
+    novas.push({ id: uid(), data: todayISO(), status:'Pendente', responsavel: usuarioAtual?usuarioAtual.nome:'', pedidoId: p.id, pedidoNumero: p.numero, pedidoItemIdx: idx,
+      tagMpId: mp.id, empresaId: it.empresaId||'', numeracaoId: it.numeracaoId||'', referenciaId, ribbonId, composicaoId: it.composicaoId||'', recPadraoId: it.recPadraoId||'',
+      quantidade: qtd, precoMilheiro: it.precoUnit ? it.precoUnit*1000 : 0 });
+  });
+  if(!novas.length){ showToast(avisos.length ? avisos.join(' · ') : 'O que falta já foi enviado para produção.', avisos.length?'bad':'good'); return; }
+  d.fabricacoes.push(...novas);
+  saveWS(); renderAll();
+  showToast('Enviado para produção só o que falta ('+fmtInt(novas.reduce((s,f)=>s+f.quantidade,0))+' un.). O pedido continua em Pedidos.'+(avisos.length?' Atenção: '+avisos.join(' · '):''), 'good');
 }
 function comparativoPedido(p){
   const d = cur();

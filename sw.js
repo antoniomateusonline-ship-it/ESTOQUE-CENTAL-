@@ -1,4 +1,4 @@
-const CACHE_NAME = 'estoque-central-v10';
+const CACHE_NAME = 'estoque-central-v12';
 const ASSETS = [
   './',
   './index.html',
