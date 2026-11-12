@@ -724,11 +724,12 @@ function renderAll(){
   else if(section==='estoque'){ setTopbar('Estoque', isEtq ? 'Visualização de matéria-prima e produtos prontos (somente leitura)' : 'Itens disponíveis para venda',
     (isEtq ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
        ${searchBoxHtml('buscaEstoqueInput', buscaEstoque, 'Buscar por nome ou código...', 'setBuscaEstoque')}
-       <button class="btn btn-accent" onclick="openAjusteEstoqueModal()">${iconAdjust()} Ajuste de estoque</button>
+       <button class="btn btn-accent" onclick="openAjusteEstoqueModal('insumos')">${iconAdjust()} Ajuste de insumos</button>
+       <button class="btn btn-accent" onclick="openAjusteEstoqueModal('prontos')">${iconAdjust()} Ajuste de materiais prontos</button>
        <button class="btn btn-ghost" onclick="printEstoque('materiaprima')">${iconPrint()} Imprimir matéria-prima</button>
        <button class="btn btn-ghost" onclick="printEstoque('prontos')">${iconPrint()} Imprimir produtos prontos</button></div>`
      : `<div style="display:flex;gap:8px;align-items:center;">${searchBoxHtml('buscaEstoqueInput', buscaEstoque, 'Buscar por nome ou código...', 'setBuscaEstoque')}<button class="btn btn-ghost" onclick="printEstoque('todos')">${iconPrint()} Imprimir estoque</button>
-     <button class="btn btn-ghost" onclick="openAjusteEstoqueModal()">${iconAdjust()} Ajuste de estoque</button>
+     <button class="btn btn-ghost" onclick="openAjusteEstoqueModal('prontos')">${iconAdjust()} Ajuste de estoque</button>
      <button class="btn btn-accent" onclick="openEstoqueForm()">${iconPlus()} Novo item</button></div>`));
     c.innerHTML = renderEstoque() + renderAjustesPanel(); }
   else if(section==='insumos'){ setTopbar('Entrada de Insumo','Registre a compra de ribbons, tags e etiquetas já cadastrados', ''); c.innerHTML = renderEntradasInsumo(); }
@@ -2320,16 +2321,26 @@ function registrarEntradaInsumo(){
   showToast('Entrada registrada com sucesso.', 'good');
   if(confirm('Entrada '+compra.numero+' registrada. Imprimir o comprovante agora?')) printEntradaInsumo(compra.id);
 }
-function openAjusteEstoqueModal(){
-  const itens = [...cur().estoque].sort((a,b)=>a.nome.localeCompare(b.nome));
+function ajusteLabel(it){
+  const tam = tamanhoObj(it.tamanhoId);
+  let base = (it.tipo==='Ribbon') ? ('Ribbon '+(it.tipoRibbon||'')+' — '+it.nome) : (tagIdentificacaoCompleta(it)||it.nome);
+  if(tam && tam.dimensao && !base.includes(tam.dimensao)) base += ' · '+tam.dimensao;
+  if(it.tipo==='Ribbon' && it.metrosPorRolo) base += ' · '+fmtQty(it.metrosPorRolo)+'m/rolo';
+  return base;
+}
+function openAjusteEstoqueModal(grupo){
+  const so = grupo==='insumos' ? (x=>!itemEhPronto(x)) : grupo==='prontos' ? itemEhPronto : (()=>true);
+  const itens = cur().estoque.filter(so).sort((a,b)=>ajusteLabel(a).localeCompare(ajusteLabel(b)));
+  const titulo = grupo==='insumos' ? 'Ajuste de estoque — insumos' : grupo==='prontos' ? 'Ajuste de estoque — materiais prontos' : 'Ajuste de estoque';
   openModal(`
-    <div class="modal-head"><h3>Ajuste de estoque</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-head"><h3>${titulo}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <div class="modal-body">
       <p class="hint" style="margin-top:0;">Use na conferência de estoque quando a quantidade real não bate com o sistema (perda, avaria ou lançamento esquecido). Não é compra, por isso não tem valor.</p>
       <div class="field"><label>Material</label><select id="f_ajustematerial" onchange="atualizarCamposAjusteEstoque()">
         <option value="">Selecione o material</option>
-        ${itens.map(it=>`<option value="${it.id}">${esc(tagIdentificacaoCompleta(it)||it.nome)} (${esc(it.codigo)})</option>`).join('')}
+        ${itens.map(it=>`<option value="${it.id}">${esc(ajusteLabel(it))} (${esc(it.codigo)})</option>`).join('')}
       </select></div>
+      ${itens.length?'':'<p class="hint">Nenhum item nesta categoria.</p>'}
       <div id="camposAjusteEstoque"></div>
     </div>
     <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button><button type="button" class="btn btn-accent" onclick="registrarAjusteEstoque()">${iconCheck()} Registrar ajuste</button></div>`);
@@ -2390,6 +2401,11 @@ function atualizarCamposAjusteEstoque(){
       ? `${fmtQty(item.quantidade)} rolos${upr>0?' ('+fmtQty(item.quantidade*upr)+' un.)':''}`
       : `${fmtQty(item.quantidade)} ${esc(item.unidade)}`;
   wrap.innerHTML = `
+    <div style="border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;">
+      <div><span class="subtle">Material:</span> <strong>${esc(item.nome)}</strong></div>
+      ${isRibbon?`<div><span class="subtle">Tipo de ribbon:</span> <strong>${esc(item.tipoRibbon||'—')}</strong></div>`:''}
+      ${(tamanhoObj(item.tamanhoId)&&tamanhoObj(item.tamanhoId).dimensao)?`<div><span class="subtle">Dimensão:</span> <strong>${esc(tamanhoObj(item.tamanhoId).dimensao)}</strong></div>`:''}
+    </div>
     <p class="hint">Estoque atual: <strong class="mono">${estoqueAtualTxt}</strong></p>
     <div class="field"><label>Tipo de ajuste</label>
       <div class="radio-row"><label><input type="radio" name="f_ajustetipo" value="entrada" checked> Entrada (aumentar)</label><label><input type="radio" name="f_ajustetipo" value="saida"> Saída (diminuir)</label></div>
@@ -2429,7 +2445,7 @@ function registrarAjusteEstoque(){
   const qtdAntes = item.quantidade;
   item.quantidade = tipo==='entrada' ? item.quantidade+qtd : item.quantidade-qtd;
   if(!d.ajustesEstoque) d.ajustesEstoque = [];
-  const ajuste = { id: uid(), numero: nextCode('AJ','aj'), data: todayISO(), itemId: item.id, itemNome: item.nome, descricao: tagIdentificacaoCompleta(item)||item.nome, tipo, quantidade: qtd, unidade: item.unidade, qtdAntes, qtdDepois: item.quantidade, motivo, criadoPor: usuarioAtual?usuarioAtual.nome:'' };
+  const ajuste = { id: uid(), numero: nextCode('AJ','aj'), data: todayISO(), itemId: item.id, itemNome: item.nome, descricao: ajusteLabel(item), tipo, quantidade: qtd, unidade: item.unidade, qtdAntes, qtdDepois: item.quantidade, motivo, criadoPor: usuarioAtual?usuarioAtual.nome:'' };
   d.ajustesEstoque.push(ajuste);
   closeModal(); saveWS(); renderAll();
   showToast('Ajuste de estoque registrado.', 'good');
