@@ -5746,6 +5746,12 @@ function comparativoPedido(p){
     return { item: it, pedido: it.quantidade, estoque: emEstoqueTotal, usado: disponivel, falta: Math.max(0, it.quantidade-disponivel) };
   });
 }
+function secaoCompHtml(titulo, sub, cols, linhas){
+  return `<div style="margin:16px 0;break-inside:avoid;page-break-inside:avoid;">
+    <div style="background:#e8e8e8;padding:6px 10px;font-weight:700;font-size:12px;letter-spacing:.03em;border:1px solid #999;">${titulo} <span style="font-weight:400;font-size:10.5px;">— ${sub}</span></div>
+    <table><thead><tr>${cols.map((c,i)=>`<th${i?' style="text-align:right;"':''}>${c}</th>`).join('')}</tr></thead>
+    <tbody>${linhas.map(r=>`<tr>${r.map((c,i)=>`<td${i?' style="text-align:right;"':''}>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
 function printComparativoPedido(id){
   const p = cur().pedidos.find(x=>x.id===id); if(!p) return;
   const linhas = comparativoPedido(p);
@@ -5753,17 +5759,18 @@ function printComparativoPedido(id){
   const un = l => esc(l.item.unidade||'un');
   const html = `<div class="doc">${docHeadHtml('Comparativo: pedido × estoque', p.numero)}
     <div class="doc-meta"><span>Cliente: <strong>${esc(p.cliente)}</strong></span><span>Data: ${fmtDate(p.data)}</span><span>Status: ${esc(p.status)}</span></div>
-    <table><thead><tr><th>Item do pedido</th><th>Pedido</th><th>Em estoque</th><th>Falta produzir</th></tr></thead>
-    <tbody>${linhas.map(l=>`<tr><td>${esc(l.item.nome)}${l.item.referencia?'<br><span style="font-size:10px;color:#555;">Ref: '+esc(l.item.referencia)+'</span>':''}</td>
-      <td>${fmtQty(l.pedido)} ${un(l)}</td><td>${fmtQty(l.estoque)} ${un(l)}</td>
-      <td><strong>${l.falta>0.0001 ? fmtQty(l.falta)+' '+un(l) : 'Completo'}</strong></td></tr>`).join('')}</tbody></table>
+    ${secaoCompHtml('1. PEDIDO', 'O que o cliente pediu', ['Item','Quantidade'], linhas.map(l=>[esc(l.item.nome)+(l.item.referencia?'<br><span style="font-size:10px;color:#555;">Ref: '+esc(l.item.referencia)+'</span>':''), fmtQty(l.pedido)+' '+un(l)]))}
+    ${secaoCompHtml('2. EM ESTOQUE', 'O que já existe pronto do material pedido', ['Item','Em estoque'], linhas.map(l=>[esc(l.item.nome), fmtQty(l.estoque)+' '+un(l)]))}
+    ${secaoCompHtml('3. FALTA PRODUZIR', 'O que falta para completar o pedido', ['Item','Falta produzir'], linhas.map(l=>[esc(l.item.nome), l.falta>0.0001 ? '<strong>'+fmtQty(l.falta)+' '+un(l)+'</strong>' : 'Completo']))}
     <div style="margin:18px 0;padding:12px;border:2px solid #111;text-align:center;font-weight:700;font-size:14px;">
       ${completo ? 'O PEDIDO ESTÁ COMPLETO, SEGUIR COM A VENDA DIRETA.' : 'PEDIDO INCOMPLETO — FALTA PRODUZIR PARA COMPLETAR O PEDIDO.'}</div>
     <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
   const texto = [];
   linhas.forEach(l=>{ texto.push({nome:l.item.nome, quantidade:l.pedido, unidade:l.item.unidade||'un', precoUnit:0, subtotal:0}); });
   let t = buildReceiptText('Comparativo pedido x estoque', p.numero, ['Cliente: '+p.cliente, 'Data: '+fmtDate(p.data)], [], []);
-  const corpo = linhas.map(l=>l.item.nome+'\n  Pedido: '+fmtQty(l.pedido)+' | Estoque: '+fmtQty(l.estoque)+' | Falta: '+(l.falta>0.0001?fmtQty(l.falta):'completo')).join('\n');
+  const corpo = '1. PEDIDO\n'+linhas.map(l=>l.item.nome+'\n  '+fmtQty(l.pedido)+' '+(l.item.unidade||'un')).join('\n')
+    +'\n--------------------------------\n2. EM ESTOQUE\n'+linhas.map(l=>l.item.nome+'\n  '+fmtQty(l.estoque)+' '+(l.item.unidade||'un')).join('\n')
+    +'\n--------------------------------\n3. FALTA PRODUZIR\n'+linhas.map(l=>l.item.nome+'\n  '+(l.falta>0.0001?fmtQty(l.falta)+' '+(l.item.unidade||'un'):'completo')).join('\n');
   const rodape = completo ? 'O PEDIDO ESTA COMPLETO,\nSEGUIR COM A VENDA DIRETA.' : 'PEDIDO INCOMPLETO - FALTA PRODUZIR.';
   printDocument(html, t.replace('--------------------------------\n\n', '--------------------------------\n')+'\n'+corpo+'\n--------------------------------\n'+rodape+'\n\n\n');
 }
