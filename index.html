@@ -266,6 +266,21 @@
     .item-row-etq,.items-head-etq{grid-template-columns:1fr 1fr;}
     .ws-tab{font-size:12.5px;padding:12px 8px;}
   }
+  @media (max-width:640px){
+    .content{padding:10px;}
+    table.stack{display:block;overflow:visible;white-space:normal;touch-action:auto;}
+    table.stack thead{display:none;}
+    table.stack tbody{display:block;width:100%;}
+    table.stack tr{display:block;padding:10px 12px;border-bottom:1px solid var(--line-soft);}
+    table.stack tbody tr:last-child{border-bottom:none;}
+    table.stack td{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:3px 0;border:none;text-align:right;font-size:13px;}
+    table.stack td::before{content:attr(data-label);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);font-weight:600;text-align:left;flex-shrink:0;}
+    table.stack td:not([data-label])::before{display:none;}
+    table.stack td:empty{display:none;}
+    table.stack td.td-actions{display:block;padding-top:8px;}
+    table.stack td.td-actions .row-actions{justify-content:flex-start;}
+    table.stack td.td-actions .row-actions .btn{flex:1 1 auto;justify-content:center;}
+  }
 </style>
 </head>
 <body class="ws-etiquetag">
@@ -318,9 +333,9 @@ const WS_META = {
 let ws = 'etiquetag';
 let estoqueFiltro = 'todos';
 function emptyData(){
-  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[], outrosTipos:[], responsaveisFinanceiros:[], ajustesEstoque:[], fabricacoes:[], fechamentos:[],
+  return { empresa:{nome:'Minha Empresa',documento:'',endereco:''}, estoque:[], pedidos:[], vendas:[], tamanhos:[], numeracoes:[], empresas:[], producoes:[], ribbonDescricoes:[], compras:[], outrosTipos:[], responsaveisFinanceiros:[], ajustesEstoque:[], fabricacoes:[], fechamentos:[], pagamentos:[],
     qrPagamento:{foto:'', legenda:''},
-    configImpressao:{formato:'a4', assinatura:true, documento:true}, seq:{pd:1,vd:1,rb:1,tm:1,tg:1,it:1,doc:0,en:1,aj:1,fc:1} };
+    configImpressao:{formato:'a4', assinatura:true, documento:true}, seq:{pd:1,vd:1,rb:1,tm:1,tg:1,it:1,doc:0,en:1,aj:1,fc:1,rt:1} };
 }
 let DATA = { etiquetag: emptyData(), vimats: emptyData() };
 const appStorage = (window.storage && typeof window.storage.get==='function') ? window.storage : {
@@ -350,8 +365,9 @@ function migrateIfNeeded(wsKey, raw){
   if(!raw.ajustesEstoque) raw.ajustesEstoque = [];
   if(!raw.fabricacoes) raw.fabricacoes = [];
   if(!raw.fechamentos) raw.fechamentos = [];
+  if(!raw.pagamentos) raw.pagamentos = [];
   if(!raw.seq) raw.seq = {};
-  ['pd','vd','rb','tm','tg','it','en','aj','fc'].forEach(k=>{ if(!raw.seq[k]) raw.seq[k]=1; });
+  ['pd','vd','rb','tm','tg','it','en','aj','fc','rt'].forEach(k=>{ if(!raw.seq[k]) raw.seq[k]=1; });
   if(raw.seq.doc===undefined) raw.seq.doc = 0;
   raw.empresas.forEach(e=>{ if(e.responsavelFinanceiroId===undefined) e.responsavelFinanceiroId = ''; });
   if(!raw.estoque) raw.estoque = [];
@@ -369,7 +385,7 @@ function migrateIfNeeded(wsKey, raw){
     if(!v.statusPagamento) v.statusPagamento = 'Pago';
     if(v.valorRecebido===undefined) v.valorRecebido = v.statusPagamento==='Pago' ? v.total : 0;
     if(v.descontoPagamento===undefined) v.descontoPagamento = 0;
-    if(v.entregue===undefined) v.entregue = true;
+    if(!v.statusEntrega) v.statusEntrega = (v.entregue===false) ? 'Pendente' : 'Enviada';
     if(v.empresaId===undefined){
       const found = raw.empresas.find(e=>e.nome.toLowerCase()===(v.cliente||'').toLowerCase());
       v.empresaId = found ? found.id : '';
@@ -516,12 +532,22 @@ function qtdParaEstoque(item, qtd, emRolos, porRolo){
 }
 function fmtDateTime(iso){ const d=new Date(iso); return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); }
 function todayISO(){ return new Date().toISOString(); }
-function nextNumeroDoc(){
+function nextNumeroDoc(prefix){
   const d = cur();
   let max = d.seq.doc||0;
   [...d.pedidos, ...d.vendas].forEach(x=>{ const m = /(\d+)\s*$/.exec(x.numero||''); if(m) max = Math.max(max, parseInt(m[1],10)); });
   d.seq.doc = max+1;
-  return (ws==='etiquetag'?'ET':'VM')+'-'+String(max+1).padStart(4,'0');
+  return (prefix||'PD')+'-'+String(max+1).padStart(4,'0');
+}
+function numeroVendaDoPedido(p){
+  const d = cur();
+  const m = /(\d+)\s*$/.exec(p.numero||'');
+  if(m){ const cand = 'VD-'+m[1]; if(!d.vendas.some(v=>v.numero===cand)) return cand; }
+  return nextNumeroDoc('VD');
+}
+function nextNumeroRT(){
+  const d = cur(); const n = d.seq.rt||1; d.seq.rt = n+1;
+  return 'RT-'+String(n).padStart(2,'0');
 }
 function proximoNumeroDocPreview(){
   const d = cur(); let max = d.seq.doc||0;
@@ -4456,7 +4482,7 @@ function confirmarSalvarPedido(){
       pedido.editadoPor = usuarioAtual?usuarioAtual.nome:''; pedido.editadoEm = new Date().toISOString();
     }
   } else {
-    d.pedidos.push({ id: uid(), numero: nextNumeroDoc(), cliente: p.clienteNome,
+    d.pedidos.push({ id: uid(), numero: nextNumeroDoc('PD'), cliente: p.clienteNome,
       data: p.data, observacoes: p.observacoes, itens: p.itens, total: p.total, status:'Pendente',
       criadoPor: usuarioAtual?usuarioAtual.nome:'' });
   }
@@ -4490,8 +4516,8 @@ function convertPedido(id){
   if(problemas.length){ showToast(problemas.join(' · '), 'bad'); return; }
   baixarEstoqueItens(p.itens);
   const empresaMatch = (d.empresas||[]).find(emp=>emp.nome.toLowerCase()===p.cliente.toLowerCase());
-  const venda = { id: uid(), dataRegistro: todayISO(), numero: nextNumeroDoc(), pedidoId: p.id, cliente: p.cliente, empresaId: empresaMatch?empresaMatch.id:'', data: todayISO().slice(0,10),
-    itens: p.itens, formaPagamento: 'Não informado', desconto: 0, total: p.total, status: 'Concluída', statusPagamento: 'Pendente', entregue: false };
+  const venda = { id: uid(), dataRegistro: todayISO(), numero: numeroVendaDoPedido(p), pedidoId: p.id, cliente: p.cliente, empresaId: empresaMatch?empresaMatch.id:'', data: todayISO().slice(0,10),
+    itens: p.itens, formaPagamento: 'Não informado', desconto: 0, total: p.total, status: 'Concluída', statusPagamento: 'Pendente', valorRecebido: 0, descontoPagamento: 0, statusEntrega: 'Pendente' };
   d.vendas.push(venda);
   p.status = 'Concluído';
   saveWS(); renderAll();
@@ -4555,6 +4581,7 @@ function renderFinanceiro(){
           <button class="btn btn-ghost btn-sm" onclick="verHistoricoEmpresa('${key}')">Ver histórico</button>
           ${pendente>0?`<button class="btn btn-ghost btn-sm" title="Imprimir comprovante de débito" onclick="printComprovanteDebito('${key}')">${iconPrint()} Comprovante de débito</button>`:''}
           ${pendente>0?`<button class="btn btn-accent btn-sm" title="Gerar PDF do débito para enviar ao cliente" onclick="abrirPdfDebitoModal('${key}')">PDF do débito</button>`:''}
+          ${pendente>0 && !resp?`<button class="btn btn-ghost btn-sm" title="Registrar pagamento desta empresa" onclick="abrirPagamentoDebitoModal(${JSON.stringify(g.vendas.filter(v=>saldoAbertoVenda(v)>0.005).map(v=>v.id)).replace(/"/g,'&quot;')},'${esc(g.nome)}')">${iconCheck()} Pagamento</button>`:''}
         </div></td>
       </tr>`;
     }).join('')}</tbody></table>
@@ -4585,12 +4612,24 @@ function renderFinanceiro(){
           <td>${lista.map(x=>esc(x.nome)+' ('+fmtMoney(x.pendente)+')').join(', ')}</td>
           <td class="mono">${badgeHtml('warn', fmtMoney(totalResp))}</td>
           <td><div class="row-actions">
-            <button class="btn btn-ghost btn-sm" onclick="abrirSelecaoComprovanteResponsavel('${respId}')">${iconPrint()} Emitir comprovante</button>
-            <button class="btn btn-ghost btn-sm" onclick="marcarTudoPagoResponsavel('${respId}')">${iconCheck()} Marcar tudo como pago</button>
+            <button class="btn btn-accent btn-sm" onclick="abrirDebitoRespModal('${respId}','pdf')">PDF</button>
+            <button class="btn btn-accent btn-sm" onclick="abrirDebitoRespModal('${respId}','pagto')">${iconCheck()} Pagamento</button>
+            <button class="btn btn-ghost btn-sm" onclick="abrirSelecaoComprovanteResponsavel('${respId}')">${iconPrint()} Comprovante</button>
           </div></td>
         </tr>`;
       }).join('')}</tbody></table>
     </div>`;
+  }
+
+  if((d.pagamentos||[]).length){
+    html += `<div class="panel"><div class="panel-head"><h3>Pagamentos registrados</h3></div>
+      <table><thead><tr><th>Nº</th><th>Data</th><th>Responsável</th><th>Pago</th><th>Pendente</th><th></th></tr></thead>
+      <tbody>${[...d.pagamentos].reverse().slice(0,20).map(rt=>`<tr>
+        <td><span class="code-tag">${esc(rt.numero)}</span></td><td>${fmtDate(rt.data)}</td><td>${esc(rt.respNome||'—')}</td>
+        <td class="mono">${fmtMoney(rt.valorRecebido)}</td>
+        <td class="mono">${rt.pendente>0.005?badgeHtml('warn', fmtMoney(rt.pendente)):fmtMoney(0)}</td>
+        <td><div class="row-actions"><button class="btn btn-ghost btn-sm" onclick="abrirRTModal('${rt.id}')">Ver</button>
+        <button class="btn btn-accent btn-sm" onclick="gerarPdfRT('${rt.id}')">PDF</button></div></td></tr>`).join('')}</tbody></table></div>`;
   }
 
   if(financeiroEmpresaSelecionada){
@@ -4609,7 +4648,7 @@ function renderFinanceiro(){
               <div style="display:flex;align-items:center;gap:8px;">
                 <span class="mono" style="font-weight:700;">${fmtMoney(v.total)}</span>
                 ${badge}
-                ${saldo>0.005?`<button class="btn btn-ghost btn-sm" onclick="abrirPagamentoDebitoModal(['${v.id}'],'${esc(g.nome)}')">Registrar pagamento</button>`:`<button class="btn btn-ghost btn-sm" onclick="togglePagamento('${v.id}')">Marcar pendente</button>`}
+                ${saldo>0.005?`<button class="btn btn-ghost btn-sm" onclick="abrirPagamentoDebitoModal(['${v.id}'],'${esc(g.nome)}')">Registrar pagamento</button>`:''}
                 <button class="icon-btn" title="Imprimir" onclick="printVenda('${v.id}')">${iconPrint()}</button>
               </div>
             </div>
@@ -4828,9 +4867,16 @@ function toggleEntregue(vendaId){
   const d = cur();
   const v = d.vendas.find(x=>x.id===vendaId);
   if(!v) return;
-  v.entregue = v.entregue===false ? true : false;
+  v.statusEntrega = v.statusEntrega==='Enviada' ? 'Pendente' : 'Enviada';
   saveWS(); renderAll();
-  showToast('Status de entrega atualizado.', 'good');
+  showToast('Entrega: '+v.statusEntrega+'.', 'good');
+}
+function pagamentoVendaCell(v){
+  if(v.status!=='Concluída') return '—';
+  const s = saldoAbertoVenda(v);
+  if(s<=0.005) return badgeHtml('good','Pago');
+  if(s<v.total-0.005) return badgeHtml('warn','Parcial'+(v.pendenciaRT?' · '+v.pendenciaRT:''))+`<div class="l-sub">Falta ${fmtMoney(s)}</div>`;
+  return badgeHtml('warn','Pendente'+(v.pendenciaRT?' · '+v.pendenciaRT:''));
 }
 function subToggleHeader(key, label, count){
   const collapsed = isColapsado(key);
@@ -4839,12 +4885,13 @@ function subToggleHeader(key, label, count){
 function numeroSeq(v){ const m = /(\d+)\s*$/.exec(v.numero||''); return m ? parseInt(m[1],10) : 0; }
 function vendaTableHtml(lista, mostrarCliente){
   if(!lista.length) return `<div class="empty" style="padding:16px;"><p>Nenhuma venda aqui.</p></div>`;
-  return `<table><thead><tr><th>Nº</th>${mostrarCliente?'<th>Cliente</th>':''}<th>Data</th><th>Itens</th><th>Total</th><th>Entregue</th><th></th></tr></thead>
+  return `<table><thead><tr><th>Nº</th>${mostrarCliente?'<th>Cliente</th>':''}<th>Data</th><th>Itens</th><th>Total</th><th>Entrega</th><th>Pagamento</th><th></th></tr></thead>
     <tbody>${lista.map(v=>`
       <tr>
         <td><span class="code-tag">${esc(v.numero)}</span>${v.status==='Cancelada'?' '+badgeHtml('warn','Cancelada'):''}${(v.criadoPor||v.canceladoPor)?`<div class="l-sub">${v.canceladoPor?'Cancelado por '+esc(v.canceladoPor):(v.criadoPor?'Criado por '+esc(v.criadoPor):'')}</div>`:''}</td>${mostrarCliente?`<td>${esc(v.cliente)}</td>`:''}<td>${fmtDate(v.data)}</td><td>${v.itens.length}</td>
         <td class="mono">${fmtMoney(v.total)}</td>
-        <td>${v.status==='Concluída'?`<button class="btn btn-sm ${v.entregue===false?'btn-ghost':'btn-accent'}" onclick="toggleEntregue('${v.id}')">${v.entregue===false?badgeHtml('warn','Não entregue'):badgeHtml('good','Entregue')}</button>`:'—'}</td>
+        <td>${v.status==='Concluída'?`<button class="btn btn-sm btn-ghost" title="Clique para alternar entre Pendente e Enviada" onclick="toggleEntregue('${v.id}')">${v.statusEntrega==='Enviada'?badgeHtml('good','Enviada'):badgeHtml('warn','Pendente')}</button>`:'—'}</td>
+        <td>${pagamentoVendaCell(v)}</td>
         <td><div class="row-actions">
           ${v.status==='Concluída'?`<button class="btn btn-ghost btn-sm" title="Editar venda" onclick="openEditarVenda('${v.id}')">${iconEdit()} Editar</button>`:''}
           <button class="btn btn-ghost btn-sm" title="Visualizar comprovante" onclick="visualizarVenda('${v.id}')">Visualizar</button>
@@ -5198,10 +5245,10 @@ function saveVenda(e){
   const statusPagEl = document.getElementById('f_statuspagamento');
   const totalVendaFinal = Math.max(0,subtotal-desconto);
   const statusPagInicial = statusPagEl?statusPagEl.value:'Pago';
-  const venda = { id: uid(), dataRegistro: todayISO(), numero: nextNumeroDoc(), pedidoId: null, cliente: clienteNome, empresaId: empresaMatch?empresaMatch.id:'',
+  const venda = { id: uid(), dataRegistro: todayISO(), numero: nextNumeroDoc('VD'), pedidoId: null, cliente: clienteNome, empresaId: empresaMatch?empresaMatch.id:'',
     data: document.getElementById('f_data').value, formaPagamento: document.getElementById('f_pagamento').value,
     desconto, itens, total: totalVendaFinal, status:'Concluída', statusPagamento: statusPagInicial,
-    valorRecebido: statusPagInicial==='Pago' ? totalVendaFinal : 0, descontoPagamento: 0, entregue: true,
+    valorRecebido: statusPagInicial==='Pago' ? totalVendaFinal : 0, descontoPagamento: 0, statusEntrega: 'Enviada',
     criadoPor: usuarioAtual?usuarioAtual.nome:'' };
   baixarEstoqueItens(itensValidos);
   d.vendas.push(venda);
@@ -5241,7 +5288,7 @@ function renderImpressaoConfig(){
       <div class="field" style="margin-top:18px;max-width:320px;">
         <label>Próximo número de pedido / venda</label>
         <input type="number" min="1" step="1" id="f_proximonumero" value="${proximoNumeroDocPreview()}">
-        <p class="hint">Pedidos e vendas diretas compartilham a mesma sequência (${ws==='etiquetag'?'ET':'VM'}-0001, ${ws==='etiquetag'?'ET':'VM'}-0002...). Para começar de outro número, altere aqui — se já existir um número maior, a sequência continua a partir dele.</p>
+        <p class="hint">Pedido e venda compartilham o mesmo número: o pedido PD-0010 vira a venda VD-0010. Uma venda direta nova usa o próximo número livre (VD-0011). Para começar de outro número, altere aqui — se já existir um número maior, a sequência continua a partir dele.</p>
       </div>
       <button class="btn btn-accent" style="margin-top:20px;" onclick="saveImpressaoConfig()">${iconCheck()} Salvar configuração</button>
       <button class="btn btn-ghost" style="margin-top:20px;margin-left:8px;" onclick="printTeste()">${iconPrint()} Imprimir teste</button>
@@ -5663,6 +5710,22 @@ function saveConfig(e){
 function openModal(html){ document.getElementById('modalBox').innerHTML = html; document.getElementById('modalOverlay').classList.remove('hidden'); }
 function closeModal(){ document.getElementById('modalOverlay').classList.add('hidden'); document.getElementById('modalBox').innerHTML = ''; }
 document.getElementById('modalOverlay').addEventListener('click', e=>{ if(e.target.id==='modalOverlay') closeModal(); });
+function aplicarStackTabelas(){
+  document.querySelectorAll('table').forEach(t=>{
+    if(t.dataset.stk || t.closest('.doc') || t.classList.contains('nostack')) return;
+    const ths = Array.from(t.querySelectorAll('thead th')).map(th=>th.textContent.trim());
+    if(!ths.length) return;
+    const rows = Array.from(t.querySelectorAll('tbody tr'));
+    if(rows.some(tr=>Array.from(tr.children).some(td=>td.colSpan>1))) return;
+    rows.forEach(tr=>Array.from(tr.children).forEach((td,i)=>{
+      if(ths[i]) td.setAttribute('data-label', ths[i]);
+      if(td.querySelector('.row-actions')) td.classList.add('td-actions');
+    }));
+    t.classList.add('stack'); t.dataset.stk = '1';
+  });
+}
+let _stkTimer;
+new MutationObserver(()=>{ clearTimeout(_stkTimer); _stkTimer = setTimeout(aplicarStackTabelas, 30); }).observe(document.body, {childList:true, subtree:true});
 
 function docHeadHtml(tipo, numero){
   const em = cur().empresa;
@@ -5762,6 +5825,7 @@ function abrirPagamentoDebitoModal(vendaIds, labelContexto){
   const vendas = d.vendas.filter(v=>vendaIds.includes(v.id));
   const totalAberto = vendas.reduce((s,v)=>s+saldoAbertoVenda(v),0);
   window._pagamentoDebitoVendaIds = vendaIds;
+  window._pagamentoCtx = { respId:'', label: labelContexto||'' };
   openModal(`
     <div class="modal-head"><h3>Registrar pagamento${labelContexto?' · '+esc(labelContexto):''}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
     <div class="modal-body">
@@ -5786,8 +5850,15 @@ function atualizarCampoPagamentoParcial(){
   if(campo) campo.style.display = tipo==='parcial' ? 'block' : 'none';
 }
 function confirmarPagamentoDebito(){
-  const vendaIds = window._pagamentoDebitoVendaIds||[];
   const d = cur();
+  let vendaIds, ctx;
+  if(document.getElementById('debRespTotal')){
+    const emps = Array.from(document.querySelectorAll('.f_debresp:checked')).map(el=>el.value);
+    if(!emps.length){ showToast('Selecione ao menos uma empresa.', 'bad'); return; }
+    vendaIds = d.vendas.filter(v=>v.status!=='Cancelada' && saldoAbertoVenda(v)>0.005 && emps.includes(v.empresaId)).map(v=>v.id);
+    const rp = (d.responsaveisFinanceiros||[]).find(r=>r.id===window._debRespId);
+    ctx = { respId: window._debRespId, label: rp?rp.nome:'' };
+  } else { vendaIds = window._pagamentoDebitoVendaIds||[]; ctx = window._pagamentoCtx||{respId:'',label:''}; }
   const vendasAlvo = d.vendas.filter(v=>vendaIds.includes(v.id)).sort((a,b)=>new Date(a.data)-new Date(b.data));
   const totalAberto = vendasAlvo.reduce((s,v)=>s+saldoAbertoVenda(v),0);
   const tipo = document.querySelector('input[name="f_tipopagdebito"]:checked').value;
@@ -5798,23 +5869,187 @@ function confirmarPagamentoDebito(){
   if(totalAplicar<=0){ showToast('Informe o valor recebido e/ou o desconto.', 'bad'); return; }
   if(totalAplicar > totalAberto+0.01){ showToast('O valor informado (recebido + desconto) é maior que o débito em aberto.', 'bad'); return; }
   let restanteDesconto = desconto, restanteRecebido = valorRecebido;
+  const rtItens = [];
   vendasAlvo.forEach(v=>{
-    if(restanteDesconto<=0 && restanteRecebido<=0) return;
     const saldo = saldoAbertoVenda(v);
     if(saldo<=0.005) return;
-    const descAplicado = Math.min(saldo, restanteDesconto);
+    const descAplicado = Math.min(saldo, Math.max(0,restanteDesconto));
     restanteDesconto -= descAplicado;
-    const recAplicado = Math.min(saldo-descAplicado, restanteRecebido);
+    const recAplicado = Math.min(saldo-descAplicado, Math.max(0,restanteRecebido));
     restanteRecebido -= recAplicado;
     v.valorRecebido = (v.valorRecebido||0) + recAplicado;
     v.descontoPagamento = (v.descontoPagamento||0) + descAplicado;
-    if(saldoAbertoVenda(v) <= 0.005) v.statusPagamento = 'Pago';
+    const pend = saldoAbertoVenda(v);
+    v.statusPagamento = pend<=0.005 ? 'Pago' : 'Pendente';
+    const emp = empresaObj(v.empresaId);
+    rtItens.push({ vendaId: v.id, numero: v.numero, empresa: emp?emp.nome:v.cliente, saldoAntes: saldo, pago: recAplicado, desconto: descAplicado, pendente: pend<=0.005?0:pend });
+  });
+  const restante = Math.max(0, totalAberto - totalAplicar);
+  const rt = { id: uid(), numero: nextNumeroRT(), data: todayISO(), respId: ctx.respId||'', respNome: ctx.label||'', itens: rtItens,
+    valorRecebido, desconto, totalAntes: totalAberto, pendente: restante, criadoPor: usuarioAtual?usuarioAtual.nome:'' };
+  if(!d.pagamentos) d.pagamentos = [];
+  d.pagamentos.push(rt);
+  vendasAlvo.forEach(v=>{
+    const it = rtItens.find(x=>x.vendaId===v.id);
+    if(!it) return;
+    if(it.pendente>0.005) v.pendenciaRT = rt.numero; else delete v.pendenciaRT;
   });
   saveWS();
   closeModal();
   renderAll();
-  const restante = totalAberto - totalAplicar;
-  showToast(restante>0.005 ? 'Pagamento registrado. Restam '+fmtMoney(restante)+' em aberto.' : 'Débito quitado com sucesso.', 'good');
+  showToast(restante>0.005 ? 'Pagamento registrado ('+rt.numero+'). Restam '+fmtMoney(restante)+' em aberto.' : 'Débito quitado ('+rt.numero+').', 'good');
+  abrirRTModal(rt.id);
+}
+
+// ----- Débito por responsável: modal unificado (PDF / pagamento) -----
+function debitoEmpresasDoResp(respId){
+  const d = cur();
+  const pend = d.vendas.filter(v=>v.status!=='Cancelada' && saldoAbertoVenda(v)>0.005);
+  return (d.empresas||[]).filter(e=>e.responsavelFinanceiroId===respId).map(e=>{
+    const vs = pend.filter(v=>v.empresaId===e.id);
+    return { empresaId: e.id, nome: e.nome, vendas: vs, pendente: vs.reduce((t,v)=>t+saldoAbertoVenda(v),0) };
+  }).filter(x=>x.pendente>0.005);
+}
+function abrirDebitoRespModal(respId, modo){
+  const d = cur();
+  const resp = (d.responsaveisFinanceiros||[]).find(r=>r.id===respId);
+  const lista = debitoEmpresasDoResp(respId);
+  if(!lista.length){ showToast('Não há débitos pendentes para este responsável.', 'bad'); return; }
+  window._debRespId = respId; window._debModo = modo;
+  const pagto = modo==='pagto';
+  openModal(`
+    <div class="modal-head"><h3>${pagto?'Registrar pagamento':'PDF do débito'} · ${esc(resp?resp.nome:'')}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body">
+      <p class="hint" style="margin-top:0;">Marque as empresas que entram ${pagto?'neste pagamento':'no PDF'} (todas ou só a desejada).</p>
+      <label style="display:flex;gap:8px;align-items:center;margin-bottom:6px;font-weight:600;"><input type="checkbox" checked style="width:auto;margin:0;" onchange="document.querySelectorAll('.f_debresp').forEach(c=>c.checked=this.checked);atualizarDebResp()"> Selecionar todas</label>
+      ${lista.map(x=>`<label style="display:flex;align-items:center;gap:8px;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin-bottom:6px;">
+        <span style="display:flex;align-items:center;gap:8px;"><input type="checkbox" class="f_debresp" value="${x.empresaId}" data-saldo="${x.pendente}" checked style="width:auto;margin:0;" onchange="atualizarDebResp()">${esc(x.nome)}</span>
+        <span class="mono">${fmtMoney(x.pendente)}</span></label>`).join('')}
+      <p style="margin:10px 0 0;font-weight:700;">Total selecionado: <span id="debRespTotal" class="mono"></span></p>
+      ${pagto?`
+      <div class="field" style="margin-top:14px;"><label>Este pagamento é</label>
+        <div class="radio-row">
+          <label><input type="radio" name="f_tipopagdebito" value="total" checked onchange="atualizarDebResp()"> Valor total</label>
+          <label><input type="radio" name="f_tipopagdebito" value="parcial" onchange="atualizarDebResp()"> Pagamento parcial</label>
+        </div></div>
+      <div class="field" id="campoValorParcial" style="display:none;"><label>Valor pago agora (R$)</label><input type="number" min="0" step="0.01" id="f_valorrecebidodebito" placeholder="0,00" oninput="atualizarDebResp()"></div>
+      <div class="field"><label>Desconto ao fechar as notas (opcional)</label><input type="number" min="0" step="0.01" id="f_descontodebito" placeholder="0,00" oninput="atualizarDebResp()"></div>
+      <div id="debRespResumo" style="background:#FAF8F2;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:13px;"></div>
+      <p class="hint">Pagamento total quita todas as notas. Parcial abate do débito (da nota mais antiga para a mais nova) e o restante vira pendência, registrada em um comprovante RT.</p>`:''}
+    </div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      ${pagto?`<button type="button" class="btn btn-accent" onclick="confirmarPagamentoDebito()">${iconCheck()} Confirmar pagamento</button>`
+             :`<button type="button" class="btn btn-accent" onclick="gerarPdfDebitoResp()">Gerar PDF</button>`}</div>
+  `);
+  atualizarDebResp();
+}
+function atualizarDebResp(){
+  const tot = Array.from(document.querySelectorAll('.f_debresp:checked')).reduce((t,c)=>t+(parseFloat(c.dataset.saldo)||0),0);
+  const el = document.getElementById('debRespTotal'); if(el) el.textContent = fmtMoney(tot);
+  const res = document.getElementById('debRespResumo'); if(!res) return;
+  const tipoEl = document.querySelector('input[name="f_tipopagdebito"]:checked');
+  const tipo = tipoEl?tipoEl.value:'total';
+  const campo = document.getElementById('campoValorParcial'); if(campo) campo.style.display = tipo==='parcial'?'block':'none';
+  const desc = parseFloat((document.getElementById('f_descontodebito')||{}).value)||0;
+  const rec = tipo==='total' ? Math.max(0, tot-desc) : (parseFloat((document.getElementById('f_valorrecebidodebito')||{}).value)||0);
+  const resto = Math.max(0, tot-rec-desc);
+  res.innerHTML = `Valor pago: <strong>${fmtMoney(rec)}</strong>${desc>0?' · Desconto: <strong>'+fmtMoney(desc)+'</strong>':''}<br>Ficará pendente: <strong>${fmtMoney(resto)}</strong>`;
+}
+async function gerarPdfDebitoResp(){
+  const d = cur();
+  const emps = Array.from(document.querySelectorAll('.f_debresp:checked')).map(el=>el.value);
+  if(!emps.length){ showToast('Selecione ao menos uma empresa.', 'bad'); return; }
+  const respId = window._debRespId;
+  const resp = (d.responsaveisFinanceiros||[]).find(r=>r.id===respId);
+  const vendas = d.vendas.filter(v=>v.status!=='Cancelada' && saldoAbertoVenda(v)>0.005 && emps.includes(v.empresaId))
+    .sort((a,b)=>{ const na=(empresaObj(a.empresaId)||{nome:''}).nome, nb=(empresaObj(b.empresaId)||{nome:''}).nome; return na.localeCompare(nb) || new Date(a.data)-new Date(b.data); });
+  const todas = debitoEmpresasDoResp(respId).length===emps.length;
+  const nome = todas ? (resp?resp.nome:'Debitos') : emps.map(id=>(empresaObj(id)||{nome:''}).nome).join(', ');
+  await montarPdfDebito(vendas, nome, resp, true, emps, vendas.map(v=>v.id));
+}
+
+// ----- Comprovante RT (pagamento / pendência) -----
+function rtTitulo(rt){ return rt.pendente>0.005 ? 'Pendência de pagamento' : 'Comprovante de pagamento'; }
+function rtDocHtml(rt){
+  const temDesc = rt.itens.some(i=>i.desconto>0.005);
+  const totNotas = rt.itens.reduce((t,i)=>t+i.saldoAntes,0);
+  return `<div class="doc">${docHeadHtml(rtTitulo(rt), rt.numero)}
+    <div class="doc-meta"><span>${rt.respNome?'Responsável: <strong>'+esc(rt.respNome)+'</strong>':''}</span><span>Data: ${fmtDate(rt.data)}</span></div>
+    <table><thead><tr><th>Venda</th><th>Em aberto</th><th>Pago</th>${temDesc?'<th>Desconto</th>':''}<th>Pendente</th></tr></thead>
+    <tbody>${rt.itens.map(i=>`<tr><td>${esc(i.numero)}</td><td>${fmtMoney(i.saldoAntes)}</td><td>${fmtMoney(i.pago)}</td>${temDesc?`<td>${fmtMoney(i.desconto)}</td>`:''}<td>${fmtMoney(i.pendente)}</td></tr>`).join('')}</tbody></table>
+    <div class="doc-total"><div>Total das notas: ${fmtMoney(totNotas)}</div><div>Valor pago: ${fmtMoney(rt.valorRecebido)}</div>${rt.desconto>0.005?`<div>Desconto: ${fmtMoney(rt.desconto)}</div>`:''}
+      <div class="grand">${rt.pendente>0.005?'Pendente: '+fmtMoney(rt.pendente):'Débito quitado'}</div></div>
+    <div class="doc-foot"><div>Emitido em ${fmtDateTime(todayISO())}</div>${signLineHtml()}</div></div>`;
+}
+function abrirRTModal(id){
+  const rt = (cur().pagamentos||[]).find(x=>x.id===id); if(!rt) return;
+  openModal(`
+    <div class="modal-head"><h3>${esc(rtTitulo(rt))} ${esc(rt.numero)}</h3><button class="icon-btn" onclick="closeModal()">${iconX()}</button></div>
+    <div class="modal-body"><div style="background:#fff;color:#111;border:1px solid var(--line);border-radius:8px;padding:14px;overflow-x:auto;">${rtDocHtml(rt)}</div></div>
+    <div class="modal-foot"><button type="button" class="btn btn-ghost" onclick="closeModal()">Fechar</button>
+      <button type="button" class="btn btn-ghost" onclick="printRT('${rt.id}')">${iconPrint()} Imprimir</button>
+      <button type="button" class="btn btn-accent" onclick="closeModal();gerarPdfRT('${rt.id}')">Gerar PDF</button></div>`);
+}
+function printRT(id){
+  const rt = (cur().pagamentos||[]).find(x=>x.id===id); if(!rt) return;
+  const linhas = rt.itens.map(i=>i.numero+': aberto '+fmtMoney(i.saldoAntes)+' | pago '+fmtMoney(i.pago)+(i.desconto>0.005?' | desc. '+fmtMoney(i.desconto):'')+' | pendente '+fmtMoney(i.pendente));
+  const tot = ['Valor pago: '+fmtMoney(rt.valorRecebido)]; if(rt.desconto>0.005) tot.push('Desconto: '+fmtMoney(rt.desconto));
+  tot.push(rt.pendente>0.005?'Pendente: '+fmtMoney(rt.pendente):'Débito quitado');
+  const text = buildReceiptText(rtTitulo(rt), rt.numero, [rt.respNome?'Responsável: '+rt.respNome:'', 'Data: '+fmtDate(rt.data), ''].concat(linhas), [], tot);
+  printDocument(rtDocHtml(rt), text);
+}
+async function gerarPdfRT(id){
+  const d = cur();
+  const rt = (d.pagamentos||[]).find(x=>x.id===id); if(!rt) return;
+  let jsPDF;
+  try{ jsPDF = (await carregarJsPDF()).jsPDF; }
+  catch(e){ showToast('Sem internet para gerar o PDF. Abrindo impressão: escolha "Salvar como PDF".', 'bad'); printRT(id); return; }
+  const L = t => String(t==null?'':t).replace(/[\u00A0\u202F]/g,' ').replace(/[\u2013\u2014]/g,'-').replace(/[^\x00-\xFF]/g,'');
+  const M = n => L(fmtMoney(n));
+  const doc = new jsPDF({unit:'mm', format:'a4'});
+  const ML=15, MR=195; let y=18;
+  const em = d.empresa || {};
+  doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.text(L(em.nome||WS_META[ws].label), ML, y); y+=6;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9);
+  const meta = [em.documento, em.endereco].filter(Boolean).join(' - ');
+  if(meta){ doc.text(L(meta), ML, y); y+=5; }
+  doc.text('Emitido em '+L(fmtDate(todayISO())), MR, 18, {align:'right'});
+  y+=2; doc.setDrawColor(150); doc.line(ML,y,MR,y); y+=8;
+  doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text(L(rtTitulo(rt))+'  '+L(rt.numero), ML, y); y+=8;
+  doc.setFontSize(10);
+  if(rt.respNome){ doc.text('Responsavel: ', ML, y); doc.setFont('helvetica','normal'); doc.text(L(rt.respNome), ML+26, y); y+=5; }
+  doc.setFont('helvetica','normal'); doc.text('Data: '+L(fmtDate(rt.data)), ML, y); y+=8;
+  const temDesc = rt.itens.some(i=>i.desconto>0.005);
+  const cols = temDesc ? {ab:95, pg:125, dc:155, pd:MR-2} : {ab:110, pg:150, pd:MR-2};
+  const cab = ()=>{ doc.setFillColor(235,235,235); doc.rect(ML,y-4.5,MR-ML,7,'F'); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    doc.text('Venda',ML+2,y); doc.text('Em aberto',cols.ab,y,{align:'right'}); doc.text('Pago',cols.pg,y,{align:'right'});
+    if(temDesc) doc.text('Desconto',cols.dc,y,{align:'right'}); doc.text('Pendente',cols.pd,y,{align:'right'}); y+=7; doc.setFont('helvetica','normal'); };
+  cab();
+  rt.itens.forEach(i=>{
+    if(y>270){ doc.addPage(); y=18; cab(); }
+    doc.text(L(i.numero), ML+2, y); doc.text(M(i.saldoAntes), cols.ab, y, {align:'right'}); doc.text(M(i.pago), cols.pg, y, {align:'right'});
+    if(temDesc) doc.text(M(i.desconto), cols.dc, y, {align:'right'}); doc.text(M(i.pendente), cols.pd, y, {align:'right'});
+    y+=6; doc.setDrawColor(220); doc.line(ML,y-3.5,MR,y-3.5);
+  });
+  y+=4; doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.text('Total das notas: '+M(rt.itens.reduce((t,i)=>t+i.saldoAntes,0)), MR, y, {align:'right'}); y+=6;
+  doc.text('Valor pago: '+M(rt.valorRecebido), MR, y, {align:'right'}); y+=6;
+  if(rt.desconto>0.005){ doc.text('Desconto: '+M(rt.desconto), MR, y, {align:'right'}); y+=6; }
+  doc.setFontSize(13); doc.text(rt.pendente>0.005 ? 'PENDENTE: '+M(rt.pendente) : 'DEBITO QUITADO', MR, y+2, {align:'right'}); y+=14;
+  const qr = d.qrPagamento || {};
+  if(rt.pendente>0.005 && qr.foto){
+    try{ if(y>225){ doc.addPage(); y=18; } const fmt = /^data:image\/jpe?g/i.test(qr.foto) ? 'JPEG' : 'PNG'; doc.addImage(qr.foto, fmt, 80, y, 50, 50); y+=54;
+      if(qr.legenda){ doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text(doc.splitTextToSize(L(qr.legenda),150), 105, y, {align:'center'}); } }catch(e){}
+  }
+  const base = String(rt.respNome||'Pagamento').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,' ').trim()||'Pagamento';
+  const nomeArq = base+'.'+rt.numero+'.pdf';
+  const blob = doc.output('blob');
+  try{
+    const file = new File([blob], nomeArq, {type:'application/pdf'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title: rtTitulo(rt)+' '+rt.numero}); return; }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  doc.save(nomeArq);
+  showToast('PDF gerado: '+nomeArq, 'good');
 }
 
 
@@ -5866,6 +6101,10 @@ async function gerarPdfDebito(){
   const nome = empObj ? empObj.nome : 'Cliente avulso';
   const vendas = d.vendas.filter(v=>ids.includes(v.id)).sort((a,b)=>new Date(a.data)-new Date(b.data));
   const resp = (empObj && empObj.responsavelFinanceiroId) ? (d.responsaveisFinanceiros||[]).find(r=>r.id===empObj.responsavelFinanceiroId) : null;
+  await montarPdfDebito(vendas, nome, resp, false, key, ids);
+}
+async function montarPdfDebito(vendas, nome, resp, agrupar, key, ids){
+  const d = cur();
   let jsPDF;
   try{ jsPDF = (await carregarJsPDF()).jsPDF; }
   catch(e){
@@ -5887,11 +6126,16 @@ async function gerarPdfDebito(){
   y+=2; doc.setDrawColor(150); doc.line(ML,y,MR,y); y+=8;
   doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.text('Demonstrativo de Débito', ML, y); y+=8;
   doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.text('Cliente: ', ML, y);
-  doc.setFont('helvetica','normal'); doc.text(L(nome), ML+16, y); y+=5;
+  doc.setFont('helvetica','normal'); doc.text(L(nome).slice(0,90), ML+16, y); y+=5;
   if(resp){ doc.setFont('helvetica','bold'); doc.text('Responsavel financeiro: ', ML, y); doc.setFont('helvetica','normal'); doc.text(L(resp.nome+' ('+resp.codigo+')'), ML+42, y); y+=5; }
   y+=3;
-  let totalGeral=0;
+  let totalGeral=0, empAtual=null;
   vendas.forEach(v=>{
+    if(agrupar && v.empresaId!==empAtual){
+      empAtual = v.empresaId; novaPag(16);
+      const eo = empresaObj(v.empresaId);
+      doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text(L('Empresa: '+(eo?eo.nome:v.cliente)), ML, y); y+=6;
+    }
     const saldo = saldoAbertoVenda(v); totalGeral += saldo;
     const pago = v.total - saldo;
     novaPag(20+Math.min(v.itens.length,3)*6);
@@ -5933,7 +6177,7 @@ async function gerarPdfDebito(){
   } else if(qr.legenda){
     doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text('Pagamento: '+L(qr.legenda), ML, y);
   }
-  const nomeArq = (String(nome).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,' ').trim()||'Cliente')+'.debito-'+todayISO()+'.pdf';
+  const nomeArq = (String(nome).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,' ').trim()||'Cliente')+'.debito-'+todayISO().slice(0,10)+'.pdf';
   const blob = doc.output('blob');
   closeModal();
   try{
@@ -6382,9 +6626,6 @@ function excluirUsuario(id){
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
 }
-if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
-}
 (async function init(){
   document.getElementById('content').innerHTML = `<div class="empty"><p>Carregando dados...</p></div>`;
   await loadAll();
@@ -6394,6 +6635,10 @@ if('serviceWorker' in navigator){
   if(usuarios.length) abrirSeletorUsuario(false);
   iniciarAutoSyncSupabase();
 })();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('sw.js').catch(()=>{}); });
+}
 </script>
 </body>
 </html>
