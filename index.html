@@ -266,6 +266,7 @@
     .item-row-etq,.items-head-etq{grid-template-columns:1fr 1fr;}
     .ws-tab{font-size:12.5px;padding:12px 8px;}
   }
+  input[readonly]{background:#F3F0E8;color:var(--ink-soft);cursor:not-allowed;}
   @media (max-width:640px){
     .content{padding:10px;}
     table.stack{display:block;overflow:visible;white-space:normal;touch-action:auto;}
@@ -366,6 +367,7 @@ function migrateIfNeeded(wsKey, raw){
   if(!raw.fabricacoes) raw.fabricacoes = [];
   if(!raw.fechamentos) raw.fechamentos = [];
   if(!raw.pagamentos) raw.pagamentos = [];
+  mesclarProntosDuplicados(raw);
   if(!raw.seq) raw.seq = {};
   ['pd','vd','rb','tm','tg','it','en','aj','fc','rt'].forEach(k=>{ if(!raw.seq[k]) raw.seq[k]=1; });
   if(raw.seq.doc===undefined) raw.seq.doc = 0;
@@ -607,6 +609,29 @@ function collapsiblePanel(key, titleHtml, subHtml, actionsHtml, contentHtml){
 function tamanhoObj(id){ return cur().tamanhos.find(x=>x.id===id); }
 function numeracaoObj(id){ return (cur().numeracoes||[]).find(x=>x.id===id); }
 function empresaObj(id){ return (cur().empresas||[]).find(x=>x.id===id); }
+function acharProntoEstoque(d, tamanhoId, categoria, numeracaoId, empresaId, referenciaId){
+  return d.estoque.find(p=>p.tipo==='Tag' && (p.tamanhoId||'')===(tamanhoId||'') && (p.categoriaTag||'Tag')===(categoria||'Tag')
+    && (p.numeracaoId||'')===(numeracaoId||'') && (p.empresaId||'')===(empresaId||'') && (p.referenciaId||'')===(referenciaId||''));
+}
+function mesclarProntosDuplicados(raw){
+  const est = raw.estoque||[]; const grupos = {}; const remover = new Set(); const mapa = {};
+  est.forEach(p=>{
+    if(p.tipo!=='Tag') return;
+    const k = [p.tamanhoId||'', p.categoriaTag||'Tag', p.numeracaoId||'', p.empresaId||'', p.referenciaId||''].join('|');
+    if(!grupos[k]){ grupos[k] = p; return; }
+    const m = grupos[k]; const q = (m.quantidade||0)+(p.quantidade||0);
+    m.custo = q>0 ? ((m.quantidade||0)*(m.custo||0)+(p.quantidade||0)*(p.custo||0))/q : (m.custo||0);
+    m.quantidade = q;
+    if(!(m.preco>0) && p.preco>0) m.preco = p.preco;
+    ['ribbonId','composicaoId','recPadraoId','referencia'].forEach(f=>{ if(!m[f] && p[f]) m[f] = p[f]; });
+    mapa[p.id] = m.id; remover.add(p.id);
+  });
+  if(!remover.size) return;
+  raw.estoque = est.filter(p=>!remover.has(p.id));
+  (raw.producoes||[]).forEach(x=>{ if(mapa[x.tagProntoId]) x.tagProntoId = mapa[x.tagProntoId]; });
+  (raw.ajustesEstoque||[]).forEach(x=>{ if(mapa[x.itemId]) x.itemId = mapa[x.itemId]; });
+  [...(raw.pedidos||[]), ...(raw.vendas||[])].forEach(doc=>(doc.itens||[]).forEach(i=>{ if(mapa[i.produtoId]) i.produtoId = mapa[i.produtoId]; }));
+}
 function isTagProntoEtq(item){ return !!item && ws==='etiquetag' && item.tipo==='Tag'; }
 function tagEtiquetasDisponiveis(item){ const tam=tamanhoObj(item.tamanhoId); return tam ? item.quantidade*(tam.unidadesPorRolo||0) : 0; }
 function getEtiquetasPorMetro(tam){
@@ -939,7 +964,7 @@ function renderCamposFabricacao(){
     </select>
     ${!ribbons.length?`<p class="hint" style="color:#B23A3A;">Nenhum ribbon do tipo ${tiposPermitidos.join('/')} cadastrado.</p>`:''}
     <p class="hint">Nenhuma etiqueta é confeccionada sem ribbon — a seleção é obrigatória.</p></div>
-    <div class="field"><label>Quantidade</label><input type="number" step="0.001" min="0.001" value="${fabricacaoDraft.quantidade}" placeholder="Ex: 200" onchange="atualizarFabricacaoCampo('quantidade',this.value)"></div>
+    <div class="field"><label>Quantidade</label><input type="number" class="int-only" inputmode="numeric" step="1" min="1" value="${fabricacaoDraft.quantidade}" placeholder="Ex: 200" onchange="atualizarFabricacaoCampo('quantidade',this.value)"></div>
   </div>
   <div class="field"><label>Valor de venda do milheiro (R$)</label><input type="number" step="0.001" min="0" value="${fabricacaoDraft.precoMilheiro}" placeholder="Ex: 25.00" onchange="atualizarFabricacaoCampo('precoMilheiro',this.value)"></div>
   <button type="button" class="btn btn-accent btn-sm" onclick="registrarFabricacaoPendente()" style="margin-top:8px;">${iconPlus()} Registrar fabricação</button>`;
@@ -1023,7 +1048,7 @@ function enviarFabricacaoParaEstoque(fabricacaoId){
   const custoNovoUn = custoTagUn + custoRibbonUn;
   const precoMilheiro = f.precoMilheiro||0;
   const refInfo = f.referenciaId ? allReferenciasList().find(r=>r.id===f.referenciaId) : null;
-  let pronto = d.estoque.find(x=>x.tipo==='Tag' && x.tamanhoId===mp.tamanhoId && x.categoriaTag===mp.categoriaTag && x.numeracaoId===(f.numeracaoId||'') && x.empresaId===(f.empresaId||''));
+  let pronto = acharProntoEstoque(d, mp.tamanhoId, mp.categoriaTag, f.numeracaoId, f.empresaId, f.referenciaId);
   if(pronto){
     const custoMedio = (pronto.quantidade*pronto.custo + quantidade*custoNovoUn) / (pronto.quantidade+quantidade || 1);
     pronto.quantidade += quantidade;
@@ -2577,7 +2602,7 @@ function registrarProntoManual(){
   }
   const catTag = x.tam.composicao ? 'Composição' : 'Tag';
   const refCod = refCodigoPorId(x.refId);
-  let pronto = d.estoque.find(p=>p.tipo==='Tag' && p.tamanhoId===x.tam.id && (p.categoriaTag||'Tag')===catTag && (p.numeracaoId||'')===(x.numeracaoId||'') && (p.empresaId||'')===(x.empresaId||'') && (p.referenciaId||'')===(x.refId||''));
+  let pronto = acharProntoEstoque(d, x.tam.id, catTag, x.numeracaoId, x.empresaId, x.refId);
   const antes = pronto ? pronto.quantidade : 0;
   if(pronto){
     pronto.custo = (pronto.quantidade*pronto.custo + x.qtd*x.custoUn)/((pronto.quantidade+x.qtd)||1);
@@ -3024,7 +3049,7 @@ function producaoItemRowHtml(idx, item, tagMpId){
       </select>
         ${!ribbons.length?`<p class="hint" style="color:#B23A3A;">Nenhum ribbon do tipo ${tiposPermitidos.join('/')} cadastrado — cadastre um em Materiais antes de produzir.</p>`:''}
         <p class="hint">Nenhuma etiqueta é confeccionada sem ribbon — a seleção é obrigatória.</p></div>
-      <div class="field"><label>Quantidade</label><input type="number" step="0.001" min="0.001" value="${item.quantidade}" placeholder="Ex: 200" onchange="updateProducaoItem(${idx},'quantidade',this.value,'${tagMpId}')"></div>
+      <div class="field"><label>Quantidade</label><input type="number" class="int-only" inputmode="numeric" step="1" min="1" value="${item.quantidade}" placeholder="Ex: 200" onchange="updateProducaoItem(${idx},'quantidade',this.value,'${tagMpId}')"></div>
     </div>
     <div class="field"><label>Valor de venda do milheiro (R$)</label><input type="number" step="0.001" min="0" value="${item.precoMilheiro}" placeholder="Ex: 25.00" onchange="updateProducaoItem(${idx},'precoMilheiro',this.value,'${tagMpId}')">
       ${isComposicao?`<p class="hint">Preenchido automaticamente conforme o ribbon escolhido acima — pode ajustar se precisar.</p>`:''}</div>
@@ -3113,7 +3138,7 @@ function saveProducao(e, tagMpId){
     const custoRibbonUn = ribbon ? ribbon.preco*consumoM : 0;
     const custoNovoUn = custoTagUn + custoRibbonUn;
     const precoMilheiro = parseFloat(it.precoMilheiro)||0;
-    let pronto = d.estoque.find(x=>x.tipo==='Tag' && x.tamanhoId===mp.tamanhoId && x.categoriaTag===mp.categoriaTag && x.numeracaoId===(it.numeracaoId||'') && x.empresaId===(it.empresaId||''));
+    let pronto = acharProntoEstoque(d, mp.tamanhoId, mp.categoriaTag, it.numeracaoId, it.empresaId, it.referenciaId);
     if(pronto){
       const custoMedio = (pronto.quantidade*pronto.custo + quantidade*custoNovoUn) / (pronto.quantidade+quantidade || 1);
       pronto.quantidade += quantidade;
@@ -3953,8 +3978,8 @@ function itemFormRow(idx, item, vendaveis){
       <option value="">Selecione um item</option>
       ${vendaveis.map(p=>`<option value="${p.id}" ${item.produtoId===p.id?'selected':''}>${esc(tagIdentificacaoCompleta(p)||p.nome)} — ${fmtQty(p.quantidade)} ${esc(p.unidade)} em estoque</option>`).join('')}
     </select>
-    <input type="number" min="0.001" step="0.001" placeholder="${qtdPlaceholder}" value="${item.quantidade||''}" onchange="updateItem(${idx},'quantidade',this.value)">
-    <input type="number" min="0" step="0.001" placeholder="Preço" value="${item.precoUnit||''}" onchange="updateItem(${idx},'precoUnit',this.value)">
+    <input type="number" ${(!selProd||selProd.unidade==='un')?'class="int-only" inputmode="numeric" min="1" step="1"':'min="0.001" step="0.001"'} placeholder="${qtdPlaceholder}" value="${item.quantidade||''}" onchange="updateItem(${idx},'quantidade',this.value)">
+    <input type="number" min="0" step="0.001" placeholder="Preço" ${selProd&&isTagProntoEtq(selProd)?'readonly tabindex="-1"':''} value="${selProd&&isTagProntoEtq(selProd)?(item.precoUnit||0).toFixed(3):(item.precoUnit||'')}" onchange="updateItem(${idx},'precoUnit',this.value)">
     <div class="item-total">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</div>
     <button type="button" class="icon-btn" onclick="removeItem(${idx})">${iconX()}</button>
   </div>`;
@@ -4060,8 +4085,8 @@ function itemFormRowEtq(idx, item, vendaveis){
       <option value="">Tamanho</option>
       ${variantes.map(p=>{ const num=numeracaoObj(p.numeracaoId); return `<option value="${p.id}" ${item.produtoId===p.id?'selected':''}>${num?esc(num.nome):'Único'} (${fmtQty(p.quantidade)} un.)</option>`; }).join('')}
     </select>
-    <input type="number" min="0.001" step="0.001" placeholder="Qtd" value="${item.quantidade||''}" onchange="updateItem(${idx},'quantidade',this.value)">
-    <input type="number" min="0" step="0.001" placeholder="Preço" value="${item.precoUnit||''}" onchange="updateItem(${idx},'precoUnit',this.value)">
+    <input type="number" class="int-only" inputmode="numeric" min="1" step="1" placeholder="Qtd" value="${item.quantidade||''}" onchange="updateItem(${idx},'quantidade',this.value)">
+    <input type="number" min="0" step="0.001" placeholder="Preço" readonly tabindex="-1" title="Definido pelo valor do milheiro do produto (milheiro ÷ 1000)" value="${(item.precoUnit||0).toFixed(3)}">
     <div class="item-total">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</div>
     <button type="button" class="icon-btn" onclick="removeItem(${idx})">${iconX()}</button>
   </div>
@@ -4124,8 +4149,8 @@ function itemFormRowPedidoEtq(idx, item){
       <option value="">Tamanho</option>
       ${(d.numeracoes||[]).map(n=>`<option value="${n.id}" ${item.numeracaoId===n.id?'selected':''}>${esc(n.nome)}</option>`).join('')}
     </select>
-    <input type="number" min="0.001" step="0.001" placeholder="Qtd" value="${item.quantidade||''}" onchange="updateItem(${idx},'quantidade',this.value)">
-    <input type="number" min="0" step="0.001" placeholder="Preço" value="${item.precoUnit||''}" onchange="updateItem(${idx},'precoUnit',this.value)">
+    <input type="number" class="int-only" inputmode="numeric" min="1" step="1" placeholder="Qtd" value="${item.quantidade||''}" onchange="updateItem(${idx},'quantidade',this.value)">
+    <input type="number" min="0" step="0.001" placeholder="Preço" readonly tabindex="-1" title="Definido pelo valor do milheiro do produto (milheiro ÷ 1000)" value="${(item.precoUnit||0).toFixed(3)}">
     <div class="item-total">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</div>
     <button type="button" class="icon-btn" onclick="removeItem(${idx})">${iconX()}</button>
   </div>
@@ -4195,7 +4220,7 @@ function updateItem(idx, field, value){
 let pedidoDraftItem = null;
 function novoPedidoDraftItem(){ return {tamanhoId:'',numeracaoId:'',empresaId:'',quantidade:1,precoUnit:0,referenciaId:'',referenciaCodigo:'',descricaoRef:'',codigoBarrasRef:'',composicaoId:'',recPadraoId:'',ribbonId:''}; }
 function updateDraftField(field, value){
-  if(field==='quantidade') pedidoDraftItem.quantidade = parseFloat(value)||0;
+  if(field==='quantidade') pedidoDraftItem.quantidade = Math.floor(parseFloat(value))||0;
   else if(field==='precoUnit') pedidoDraftItem.precoUnit = parseFloat(value)||0;
   else if(field==='numeracaoId') pedidoDraftItem.numeracaoId = value;
   else if(field==='composicaoId') pedidoDraftItem.composicaoId = value;
@@ -4314,8 +4339,8 @@ function renderPedidoDraftArea(){
     }
   }
   html += `<div class="field-row">
-    <div class="field"><label>Quantidade</label><input type="number" id="pedidoDraftQtd" min="0.001" step="0.001" value="${item.quantidade||''}" oninput="updateDraftField('quantidade',this.value)"></div>
-    <div class="field"><label>Preço unitário</label><input type="number" id="pedidoDraftPreco" min="0" step="0.001" value="${item.precoUnit||''}" oninput="updateDraftField('precoUnit',this.value)"></div>
+    <div class="field"><label>Quantidade</label><input type="number" id="pedidoDraftQtd" class="int-only" inputmode="numeric" min="1" step="1" value="${item.quantidade||''}" oninput="updateDraftField('quantidade',this.value)"></div>
+    <div class="field"><label>Preço unitário (milheiro ÷ 1000)</label><input type="number" id="pedidoDraftPreco" min="0" step="0.001" readonly tabindex="-1" title="Definido pelo valor do milheiro do produto (milheiro ÷ 1000)" value="${(item.precoUnit||0).toFixed(3)}"></div>
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
     <div class="subtle">Subtotal deste item: <strong id="pedidoDraftSubtotal">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</strong></div>
@@ -4975,7 +5000,7 @@ function renderEdicaoVendaItens(){
   const el = document.getElementById('edVendaItens'); if(!el) return;
   el.innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>Item</th><th>Qtd</th><th>Preço un.</th><th>Subtotal</th><th></th></tr></thead><tbody>
     ${vendaEdicaoItens.map((it,idx)=>`<tr><td>${esc(it.nome)}</td>
-      <td><input type="number" min="0" step="0.001" value="${it.quantidade}" style="width:90px;" oninput="atualizarEdicaoVendaItem(${idx},'quantidade',this.value)"></td>
+      <td><input type="number" ${it.unidade==='un'?'class="int-only" inputmode="numeric" step="1"':'step="0.001"'} min="0" value="${it.quantidade}" style="width:90px;" oninput="atualizarEdicaoVendaItem(${idx},'quantidade',this.value)"></td>
       <td><input type="number" min="0" step="0.0001" value="${it.precoUnit}" style="width:100px;" oninput="atualizarEdicaoVendaItem(${idx},'precoUnit',this.value)"></td>
       <td class="mono" id="edsub_${idx}">${fmtMoney(it.quantidade*it.precoUnit)}</td>
       <td><button type="button" class="icon-btn" title="Remover item" onclick="removerEdicaoVendaItem(${idx})">${iconX()}</button></td></tr>`).join('')}
@@ -5109,7 +5134,7 @@ function updateVendaDraftProduto(produtoId){
   renderVendaDraftArea();
 }
 function updateVendaDraftField(field, value){
-  if(field==='quantidade') vendaDraftItem.quantidade = parseFloat(value)||0;
+  if(field==='quantidade') vendaDraftItem.quantidade = Math.floor(parseFloat(value))||0;
   else if(field==='precoUnit') vendaDraftItem.precoUnit = parseFloat(value)||0;
   else if(field==='composicaoId') vendaDraftItem.composicaoId = value;
   else if(field==='recPadraoId') vendaDraftItem.recPadraoId = value;
@@ -5164,8 +5189,8 @@ function renderVendaDraftArea(){
   </select></div>`;
   if(prodSel) html += composicaoAlertaHtml(prodSel.tamanhoId, prodSel.empresaId, item.composicaoId, item.recPadraoId, -1, false);
   html += `<div class="field-row">
-    <div class="field"><label>Quantidade</label><input type="number" id="vendaDraftQtd" min="0.001" step="0.001" value="${item.quantidade||''}" oninput="updateVendaDraftField('quantidade',this.value)"></div>
-    <div class="field"><label>Preço unitário</label><input type="number" id="vendaDraftPreco" min="0" step="0.001" value="${item.precoUnit||''}" oninput="updateVendaDraftField('precoUnit',this.value)"></div>
+    <div class="field"><label>Quantidade</label><input type="number" id="vendaDraftQtd" class="int-only" inputmode="numeric" min="1" step="1" value="${item.quantidade||''}" oninput="updateVendaDraftField('quantidade',this.value)"></div>
+    <div class="field"><label>Preço unitário (milheiro ÷ 1000)</label><input type="number" id="vendaDraftPreco" min="0" step="0.001" readonly tabindex="-1" title="Definido pelo valor do milheiro do produto (milheiro ÷ 1000)" value="${(item.precoUnit||0).toFixed(3)}"></div>
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
     <div class="subtle">Subtotal deste item: <strong id="vendaDraftSubtotal">${fmtMoney((item.quantidade||0)*(item.precoUnit||0))}</strong></div>
@@ -5710,6 +5735,9 @@ function saveConfig(e){
 function openModal(html){ document.getElementById('modalBox').innerHTML = html; document.getElementById('modalOverlay').classList.remove('hidden'); }
 function closeModal(){ document.getElementById('modalOverlay').classList.add('hidden'); document.getElementById('modalBox').innerHTML = ''; }
 document.getElementById('modalOverlay').addEventListener('click', e=>{ if(e.target.id==='modalOverlay') closeModal(); });
+document.addEventListener('wheel', ()=>{ const a=document.activeElement; if(a && a.tagName==='INPUT' && a.type==='number') a.blur(); }, {passive:true});
+document.addEventListener('keydown', e=>{ const t=e.target; if(t && t.classList && t.classList.contains('int-only') && ['.',',','e','E','-','+'].includes(e.key)) e.preventDefault(); }, true);
+document.addEventListener('input', e=>{ const t=e.target; if(t && t.classList && t.classList.contains('int-only') && t.value!=='' && !Number.isInteger(+t.value)) t.value = Math.floor(+t.value)||''; }, true);
 function aplicarStackTabelas(){
   document.querySelectorAll('table').forEach(t=>{
     if(t.dataset.stk || t.closest('.doc') || t.classList.contains('nostack')) return;
